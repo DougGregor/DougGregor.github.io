@@ -76,6 +76,10 @@ a {
     color: inherit;
 }
 
+ul li:last-child {
+    margin-bottom: 15px;
+}
+
 .description {
     margin-bottom: 40px;
 }
