@@ -47,7 +47,7 @@
 }
 </code></pre><p>In Swift, most of the types one thinks of as built-in---integers, floating point numbers, Booleans, optionals, arrays, etc.---are actually structs or enums provided by the standard library. Therefore, you can extend them with new functionality. For example, maybe we want to add a property that determines whether a given integer is prime. We can do so by extending <code>Int</code>:</p><pre><code><span class="keyword">extension</span> <span class="type">Int</span> {
   <span class="keyword">var</span> isPrime: <span class="type">Bool</span> {
-    <span class="keyword">switch</span> swift {
+    <span class="keyword">switch</span> self {
       <span class="keyword">case</span> <span class="number">0</span>: <span class="keyword">return false
       case</span> <span class="number">1</span>: <span class="keyword">return true
       default</span>: <span class="keyword">break</span>
