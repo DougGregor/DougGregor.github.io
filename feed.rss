@@ -1,4 +1,267 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Doug's Compiler Corner</title><description>Musings on programming languages and compilers.</description><link>https://www.douggregor.net</link><language>en</language><lastBuildDate>Sun, 30 Jun 2024 20:52:21 -0700</lastBuildDate><pubDate>Sun, 30 Jun 2024 20:52:21 -0700</pubDate><ttl>250</ttl><atom:link href="https://www.douggregor.net/feed.rss" rel="self" type="application/rss+xml"/><item><guid isPermaLink="true">https://www.douggregor.net/posts/swift-for-cxx-practitioners-literals</guid><title>Swift for C++ Practitioners, Part 9: Extensible Literals</title><description>Swift for C++ Practitioners, Part 9: Extensible Literals</description><link>https://www.douggregor.net/posts/swift-for-cxx-practitioners-literals</link><pubDate>Mon, 24 Jun 2024 23:58:00 -0700</pubDate><content:encoded><![CDATA[<h1>Swift for C++ Practitioners, Part 9: Extensible Literals</h1><p>One of the things that I <em>really</em> liked about C++ was the ability to create great libraries: the combination of classes, templates, and operator overloading made it possible to create abstractions that nicely describe a subject domain (whether graphs, matrices, parsers, whatever) within a library.</p><p>Swift provides similar affordances to create the right abstractions to model a subject domain. I've already talked about <a href="../swift-for-cxx-practitioners-value-types">value types</a> and <a href="swift-for-cxx-practitioners-generics.md">generics</a> at length, so we won't go into those again. However, Swift also has additional features that let you customize the language to your needs, including the ability to interact with literals (like <code>0</code> or <code>"https://douggregor.net"</code>), overload operators to your heart's content, provide specific access behavior for properties, or define your own declarative sub-language (DSL) embedded in Swift. These features, used well, can enable beautiful library designs that get at the heart of describing a domain.</p><p>I'm going to tackle language extensibility in several different posts, because there's a lot to explore, including a few side quests into other parts of the language. For this post, we're going to dive ito something that you use everyday but probably don't think about much in C++: literals.</p><p>Literals are constant values written in the source code. In Swift, there are quite a few different kinds of literals:</p><ul><li><em>Integer literals</em>: numbers like <code>42</code> and <code>-10</code>.</li><li><em>Floating-point literals</em>: numbers like <code>3.14159</code></li><li><em>Boolean literals</em>: <code>true</code> and <code>false</code></li><li><em>String literals</em>: strings like <code>"Hello, world!"</code></li><li><em>Interpolated string literals</em>: strings with interpolations in them, such as <code>"Hello, \(name)!"</code></li><li><em>Nil literal</em>: <code>nil</code></li><li><em>Array literal</em>: an array of things, such as <code>[a, b, c]</code></li><li><em>Dictionary literal</em>: a list of key-value pairs, such as <code>[a: x, b: y, c: z]</code></li></ul><p>In most programming languages, literals have a specific type. <code>0</code> in C++ is an <code>int</code>, <code>3.14159</code> is a <code>double</code>. C++ also has suffixes that are part of the literal to let you change the literal type: <code>0u</code> is an <code>unsigned int</code>, <code>3.14159f</code> is a <code>float</code>, and so on. C++ also allows many kinds of implicit conversion, which lets us be somewhat cavalier with the exact type of literals: you can write <code>int8_t x = 64;</code> and the literal <code>int</code> will be implicitly converted to <code>int8_t</code>. One hopes to get a compiler warning if the literal doesn't fit into the type of <code>x</code>.</p><p>In Swift, literals pick up the type of their enclosing context. So, we can write the equivalent to the above <code>x</code> as:</p><pre><code><span class="keyword">let</span> x: <span class="type">UInt8</span> = <span class="number">64</span>
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Doug's Compiler Corner</title><description>Musings on programming languages and compilers.</description><link>https://www.douggregor.net</link><language>en</language><lastBuildDate>Sun, 30 Jun 2024 23:52:06 -0700</lastBuildDate><pubDate>Sun, 30 Jun 2024 23:52:06 -0700</pubDate><ttl>250</ttl><atom:link href="https://www.douggregor.net/feed.rss" rel="self" type="application/rss+xml"/><item><guid isPermaLink="true">https://www.douggregor.net/posts/swift-for-cxx-practitioners-operators</guid><title>Swift for C++ Practitioners, Part 10: Operator Overloading</title><description>Swift for C++ Practitioners, Part 10: Operator Overloading</description><link>https://www.douggregor.net/posts/swift-for-cxx-practitioners-operators</link><pubDate>Sun, 30 Jun 2024 23:55:00 -0700</pubDate><content:encoded><![CDATA[<h1>Swift for C++ Practitioners, Part 10: Operator Overloading</h1><p>One of the ways in which C++ lets you define library types that feel like built-in types is operator overloading: you can define you own type (say, an big integer or a matrix type), and along with it a reasonable set of operators like <code>+</code>, <code>-</code>, <code>*</code>, and <code>/</code>. Operator overloading also lets you treat classes like functions and introduce subscripts. Swift provides a rather more... extensive... operator overloading system, along with related features that help with building DSLs. Let's start with operator overloading, and along the way we'll also tackle Swift "key paths", which are conceptually similar to pointer-to-members in C++.</p><h2>Operator overloading</h2><p>C++ operator overloading can be (and has been) abused: the standard library's use of the left-shift operator (<code>&lt;&lt;</code>) for output streaming is a little bit sus, because "shift left" and "output to a stream" really have no business being the same operator, and the arithmetic <code>&lt;&lt;</code> doesn't necessarily have the precedence you want for output streaming. Some libraries (<a href="https://www.boost.org/doc/libs/1_85_0/libs/spirit/doc/html/spirit/qi/tutorials/warming_up.html">Boost.Spirit</a> is a favorite example) take operator overloading to the extreme, providing a completely different meaning for each of the standard operators. Sometimes it works, sometimes it creates confusion.</p><p>In Swift, we wanted operator overloading for its expressive power in libraries, but were concerned about falling into the same trap where the same set of operators have very different meanings in different libraries. Perhaps we could have created some restrictions to avoid having different meanings for the same operators, but instead we went the completely opposite direction in a delightful bit of over-engineering: in Swift, libraries can define their <em>own sets of operators</em> with their own precedence relationships. If you need some operators to make your library API great, and the meanings don't match with the standard set of operators, <em>no problem</em>: define your own operator so there's no confusion.</p><h3>Operators &amp; precedence groups</h3><p>Swift has two kinds of declarations for producing the standard operators: <code>operator</code> and <code>precedencegroup</code>. The <code>operator</code> declaration spells out the name of an operator along with its kind (<code>infix</code>, <code>prefix</code>, or <code>postfix</code>). For example, let's say we deeply miss C+'s prefix <code>*</code> for pointer syntax. We can declare such an operator like this:</p><pre><code>prefix operator *
+</code></pre><p>And then we can go ahead and add a <code>*</code> implementation to <code>UnsafePointer</code> to read the value:</p><pre><code><span class="keyword">extension</span> <span class="type">UnsafePointer</span> {
+  <span class="keyword">static prefix func</span> *(<span class="keyword">_</span> pointer: <span class="type">Self</span>) -&gt; <span class="type">Pointee</span> { pointee }
+}
+</code></pre><p>Infix (binary) operators have a precedence group associated with them. The precedence group is given a name, associativity (<code>left</code> or <code>right</code>), and relationship to other precedence groups. For example, let's say we want to create a <code>&lt;&lt;&lt;</code> operator that streams out values but doesn't stomp on the bit-shift operator. It's an infix operator that could look like this:</p><pre><code>infix operator &lt;&lt;&lt;: <span class="type">OutputStreaming</span>
+</code></pre><p>Here, <code>OutputStreaming</code> is a precedence group. We could define it to be a standalone precedence group, unrelated to all others, like this:</p><pre><code>precedencegroup <span class="type">OutputStreaming</span> { }
+</code></pre><p>Now, we can use <code>&lt;&lt;&lt;</code> as an infix operator. Here's a little <code>OutputStream</code> class to show how we can define such an operator for use:</p><pre><code><span class="keyword">class</span> OutputStream {
+    <span class="keyword">static func</span> &lt;&lt;&lt;(lhs: <span class="type">OutputStream</span>, rhs: <span class="type">Int</span>) -&gt; <span class="type">OutputStream</span> {
+        <span class="comment">// stream it</span>
+        <span class="keyword">return</span> lhs
+    }
+}
+</code></pre><p>Now if we have value <code>os</code> of type <code>OutputStream</code>, we can write the expression <code>os &lt;&lt;&lt; 17</code>.</p><p>But... what happens if we write the expression <code>os &lt;&lt;&lt; 17 &lt;&lt;&lt; 42</code>? We get an error:</p><pre><code>error: adjacent operators are <span class="keyword">in</span> non-associative precedence group '<span class="type">OutputStreaming</span>'
+</code></pre><p>The problem here is that we haven't specified whether the <code>&lt;&lt;&lt;</code> operator should be read as the left-associative <code>(os &lt;&lt;&lt; 17) &lt;&lt; 42</code> or the right-associative <code>os &lt;&lt;&lt; (17 &lt;&lt;&lt; 42)</code>. Since our design is mimicking C++ output streaming by returning the left-hand operand, we meant to make it left-associative, so let's specify that:</p><pre><code>precedencegroup <span class="type">OutputStreaming</span> { 
+    associativity: left
+}
+</code></pre><p>Now, our expression parses. The next thing to consider is how <code>&lt;&lt;&lt;</code> works along with other operators. For example, how should the expression <code>os &lt;&lt;&lt; 17 + 25</code> be handled? It could be treated as <code>(os &lt;&lt; 17) + 25</code> or <code>os &lt;&lt; (17 + 25)</code>, or could even be considered an error that requires the user to write parentheses. The default behavior is an error, like this:</p><pre><code>error: adjacent operators are <span class="keyword">in</span> unordered precedence groups '<span class="type">OutputStreaming</span>' and '<span class="type">AdditionPrecedence</span>'
+</code></pre><p>What's this <code>AdditionPrecedence</code> thing, you say? Well, it comes... from the Swift standard library.</p><h3>Standard operators</h3><p>As I've mentioned before, the "standard" types in Swift are expressed using the same tools that are available to all Swift libraries. We saw it with types like <code>Int</code> and <code>Array</code> being defined in the standard library (not the language), and more recently with extensibility of literals. The same principle applies to the "standard" operators that we think of as being part of the language: the full set of arithmetic and Boolean operators are defined in the standard library with precedence relations. Here is the full set of standard precedence groups:</p><pre><code>precedencegroup <span class="type">AssignmentPrecedence</span> {
+  associativity: right
+  assignment: <span class="keyword">true</span>
+}
+precedencegroup <span class="type">FunctionArrowPrecedence</span> {
+  associativity: right
+  higherThan: <span class="type">AssignmentPrecedence</span>
+}
+precedencegroup <span class="type">TernaryPrecedence</span> {
+  associativity: right
+  higherThan: <span class="type">FunctionArrowPrecedence</span>
+}
+precedencegroup <span class="type">DefaultPrecedence</span> {
+  higherThan: <span class="type">TernaryPrecedence</span>
+}
+precedencegroup <span class="type">LogicalDisjunctionPrecedence</span> {
+  associativity: left
+  higherThan: <span class="type">TernaryPrecedence</span>
+}
+precedencegroup <span class="type">LogicalConjunctionPrecedence</span> {
+  associativity: left
+  higherThan: <span class="type">LogicalDisjunctionPrecedence</span>
+}
+precedencegroup <span class="type">ComparisonPrecedence</span> {
+  higherThan: <span class="type">LogicalConjunctionPrecedence</span>
+}
+precedencegroup <span class="type">NilCoalescingPrecedence</span> {
+  associativity: right
+  higherThan: <span class="type">ComparisonPrecedence</span>
+}
+precedencegroup <span class="type">CastingPrecedence</span> {
+  higherThan: <span class="type">NilCoalescingPrecedence</span>
+}
+precedencegroup <span class="type">RangeFormationPrecedence</span> {
+  higherThan: <span class="type">CastingPrecedence</span>
+}
+precedencegroup <span class="type">AdditionPrecedence</span> {
+  associativity: left
+  higherThan: <span class="type">RangeFormationPrecedence</span>
+}
+precedencegroup <span class="type">MultiplicationPrecedence</span> {
+  associativity: left
+  higherThan: <span class="type">AdditionPrecedence</span>
+}
+precedencegroup <span class="type">BitwiseShiftPrecedence</span> {
+  higherThan: <span class="type">MultiplicationPrecedence</span>
+}
+</code></pre><p>The various operators available in the Swift standard library use these precedence groups:</p><pre><code>infix operator &lt;&lt; : <span class="type">BitwiseShiftPrecedence</span>
+infix operator &amp;&lt;&lt; : <span class="type">BitwiseShiftPrecedence</span>
+infix operator &gt;&gt; : <span class="type">BitwiseShiftPrecedence</span>
+infix operator &amp;&gt;&gt; : <span class="type">BitwiseShiftPrecedence</span>
+
+infix operator * : <span class="type">MultiplicationPrecedence</span>
+infix operator &amp;* : <span class="type">MultiplicationPrecedence</span>
+infix operator / : <span class="type">MultiplicationPrecedence</span>
+infix operator % : <span class="type">MultiplicationPrecedence</span>
+infix operator &amp; : <span class="type">MultiplicationPrecedence</span>
+
+infix operator + : <span class="type">AdditionPrecedence</span>
+infix operator &amp;+ : <span class="type">AdditionPrecedence</span>
+infix operator - : <span class="type">AdditionPrecedence</span>
+infix operator &amp;- : <span class="type">AdditionPrecedence</span>
+infix operator | : <span class="type">AdditionPrecedence</span>
+infix operator ^ : <span class="type">AdditionPrecedence</span>
+
+infix operator ... : <span class="type">RangeFormationPrecedence</span>
+infix operator ..&lt; : <span class="type">RangeFormationPrecedence</span>
+
+infix operator ?? : <span class="type">NilCoalescingPrecedence</span>
+
+infix operator &lt; : <span class="type">ComparisonPrecedence</span>
+infix operator &lt;= : <span class="type">ComparisonPrecedence</span>
+infix operator &gt; : <span class="type">ComparisonPrecedence</span>
+infix operator &gt;= : <span class="type">ComparisonPrecedence</span>
+infix operator == : <span class="type">ComparisonPrecedence</span>
+infix operator != : <span class="type">ComparisonPrecedence</span>
+
+infix operator === : <span class="type">ComparisonPrecedence</span>
+infix operator !== : <span class="type">ComparisonPrecedence</span>
+infix operator ~= : <span class="type">ComparisonPrecedence</span>
+
+infix operator &amp;&amp; : <span class="type">LogicalConjunctionPrecedence</span>
+
+infix operator || : <span class="type">LogicalDisjunctionPrecedence</span>
+
+infix operator *= : <span class="type">AssignmentPrecedence</span>
+infix operator &amp;*= : <span class="type">AssignmentPrecedence</span>
+infix operator /= : <span class="type">AssignmentPrecedence</span>
+infix operator %= : <span class="type">AssignmentPrecedence</span>
+infix operator += : <span class="type">AssignmentPrecedence</span>
+infix operator &amp;+= : <span class="type">AssignmentPrecedence</span>
+infix operator -= : <span class="type">AssignmentPrecedence</span>
+infix operator &amp;-= : <span class="type">AssignmentPrecedence</span>
+infix operator &lt;&lt;= : <span class="type">AssignmentPrecedence</span>
+infix operator &amp;&lt;&lt;= : <span class="type">AssignmentPrecedence</span>
+infix operator &gt;&gt;= : <span class="type">AssignmentPrecedence</span>
+infix operator &amp;&gt;&gt;= : <span class="type">AssignmentPrecedence</span>
+infix operator &amp;= : <span class="type">AssignmentPrecedence</span>
+infix operator ^= : <span class="type">AssignmentPrecedence</span>
+infix operator |= : <span class="type">AssignmentPrecedence</span>
+</code></pre><p>There are some Swift-specific ones in there (<code>...</code>, <code>..&lt;</code>, and <code>??</code>, for example) that line up with specific precedence groups (<code>NilCoalescingPrecedence</code>, <code>CastingPrecedence</code>, etc.), but for the most part these operators reflect those of C(++) and where they do, the precedence and associativity is the same.</p><p>Most Swift programs just use this standard set of operators, and that's good! It's why they are standard. But if your library calls for its own operators (say, to express another domain), make sure to think about both their associativity and their relationship to the standard operators. For our output streaming operator, we expect it to have a relatively low precedence, so we can use other operators to compute the values we stream out. Making <code>OutputStreaming</code> have a lower precedence than the logical disjunction (<code>||</code>) works well:</p><pre><code>precedencegroup <span class="type">OutputStreaming</span> { 
+    associativity: left
+    lowerThan: <span class="type">LogicalDisjunctionPrecedence</span>
+}
+</code></pre><h3>Aside: "unused result" warnings</h3><p>If you've been coding along with the examples above, you've probably noticed that we get an "unused result" warning for expressions like <code>os &lt;&lt;&lt; 17</code>. By default, Swift emits these warnings for calls that return a non-<code>Void</code> result. To suppress the warning at the use site, assign the expression to the placeholder value <code>_</code>. For our <code>&lt;&lt;&lt;</code> operator, that also means making its precedence <code>higherThan: AssignmentPrecedence</code>.</p><p>However, for this particular function, we don't actually care whether the user discards the result, because the important part is the output streaming effect. Therefore, we can put the <code>@discardableResult</code> result attribute on the function to squash the warning for all uses:</p><pre><code><span class="keyword">@discardableResult
+static func</span> &lt;&lt;&lt;(lhs: <span class="type">OutputStream</span>, rhs: <span class="type">Int</span>) -&gt; <span class="type">OutputStream</span> { ... }
+</code></pre><p>Think of this as flipping the default for the C++ <a href="https://en.cppreference.com/w/cpp/language/attributes/nodiscard"><code>nodiscard</code></a> attribute: by default, Swift emits a warning for unused function results, and <code>@discardableResult</code> disables that warning for a given function.</p><h2>Calling a value as a function</h2><p>C++ lets you create classes that behave like functions by implementing an <code>operator()</code> method. Indeed, this is the basis of C++ lambdas and all other C++ "function objects".</p><p>Swift has a similar capability, but it's far less commonly-used and offers a somewhat disjoint feature set. The basic idea is the same: in Swift, you can introduce a method named <code>callAsFunction</code> that will be used when calling an instance of the value as a function. For example, here's a Swift "function object" that binds the first value of a function, like the old school C++ <a href="https://en.cppreference.com/w/cpp/utility/functional/bind12"><code>bind1st</code></a>, albeit using variadic generics:</p><pre><code><span class="keyword">struct</span> BindFirst&lt;Result, First, each <span class="type">Rest</span>&gt; {
+    <span class="keyword">var</span> fn: (<span class="type">First</span>, repeat each <span class="type">Rest</span>) -&gt; <span class="type">Result</span>
+    <span class="keyword">let</span> first: <span class="type">First</span>
+    
+    <span class="keyword">func</span> callAsFunction(<span class="keyword">_</span> rest: <span class="keyword">repeat</span> each <span class="type">Rest</span>) -&gt; <span class="type">Result</span> {
+        <span class="call">fn</span>(first, repeat each rest)
+    }
+}
+</code></pre><p>Here's how it works:</p><pre><code><span class="keyword">func</span> f(x: <span class="type">Int</span>, y: <span class="type">Double</span>) -&gt; <span class="type">String</span> { <span class="string">"</span>\(x) <span class="string">-&gt;</span> \(y)<span class="string">"</span> }
+
+<span class="keyword">let</span> bf = <span class="type">BindFirst</span>(fn: f, first: <span class="number">17</span>)
+<span class="call">bf</span>(<span class="number">3.14159</span>)
+</code></pre><p>The <code>BindFirst</code> initializer takes a function and a first argument for that function. In our example, the function <code>f</code> has a first argument of type <code>Int</code>. It then acts as a function that takes the remaining arguments (in our example, one parameter of type <code>Double</code>). When invoked, it passes along the stored first argument along with the remaining arguments (<code>repeat each rest</code>) and returns the result, so it acts as a forwarding function.</p><p>While this illustrates how <code>callAsFunction</code> <em>works</em>, it doesn't really illustrate how it's used: in Swift, one would probably just use a closure instead of <code>BindFirst</code> (indeed, <code>bind1st</code> was removed from C++ after lambdas came along for basically the same reason). More importantly, since there's no "Callable"-style protocol in Swift, you can't really abstract over function objects in the same way that you do in C++. Rather, one tends to use values of function type and closures in Swift, and <code>callAsFunction</code> is fairly rare. It's certainly less commonly used in Swift than <code>operator()</code> is in C++.</p><p>With <code>callAsFunction</code>, the argument labels at the call site need to match up with the ones declared for the parameters of <code>callAsFunction</code>, just like with any other Swift function. There's actually a way to be more dynamic and accept any keywords arguments at the call site: we'll get back to that after we talk about pointer-to-members.</p><h2>Pointer-to-member, Swift style</h2><p>C++ pointer-to-members are a mechanism for referring to a non-static member (data or function) without specifying the actual instance for <code>this</code>. At a later point, one can supply a <code>this</code> using the <code>.*</code> or <code>-&gt;*</code> operators. Here's a quick refresher:</p><pre><code><span class="keyword">class</span> Point {
+public:
+  int x, y;
+  <span class="type">Point</span> <span class="call">flippedOverXAxis</span>() { ... }
+  <span class="type">Point</span> <span class="call">flippedOverYAxis</span>() { ... }
+};
+
+<span class="comment">// Form pointers to specific members.</span>
+<span class="type">Point</span> (<span class="type">Point</span>::*memberFunction)() = &amp;<span class="type">Point</span>::flipOverXAxis;
+int (<span class="type">Point</span>::*member) = &amp;<span class="type">Point</span>::x;
+
+<span class="comment">// Supply an instance to refer to the referenced members.</span>
+<span class="type">Point</span> p{<span class="number">1</span>, <span class="number">2</span>};
+p.*member = <span class="number">3</span>;         <span class="comment">// updates x</span>
+p = (p.*memberFunction)(); <span class="comment">// flipped over X axis</span>
+</code></pre><p>Swift permits the same use cases, but... differently.</p><h3>Curried instance methods</h3><p>In Swift, it's possible to refer to an instance method of a type as a member of the type itself. Imagine a <code>Point</code> struct similar to the C++ class above:</p><pre><code><span class="keyword">struct</span> Point {
+  <span class="keyword">var</span> x: <span class="type">Int</span>
+  <span class="keyword">var</span> y: <span class="type">Int</span>
+  
+  <span class="keyword">func</span> flippedOverXAxis() -&gt; <span class="type">Point</span> { ... }
+  <span class="keyword">func</span> flippedOverYAxis() -&gt; <span class="type">Point</span> { ... }
+}
+</code></pre><p>If I refer to <code>Point.flippedOverXAxis</code>, I will get back a value of type <code>(Point) -&gt; () -&gt; Point</code>, i.e., a function that accepts a <code>Point</code> (i.e., the <code>self</code> instance) and then returns a function. The returned function takes no arguments and returns a <code>Point</code> for its result.</p><blockquote><p>Aside: Note that <code>-&gt;</code> is right-associative, so this function type is read as <code>(Point) -&gt; (() -&gt; Point)</code>. This is documented by the <code>FunctionArrowPrecedence</code> precedence group earlier in this post, which is also important for handling the <code>-&gt;</code> operator when it shows up in expressions.</p></blockquote><p>Because referring to an instance method on the type produces a function, we don't need any special syntax like <code>.*</code> to deal with "pointer-to-member-function" in Swift: it's just function calls.</p><pre><code><span class="keyword">let</span> memberFunction = <span class="type">Point</span>.<span class="property">flippedOverXAxis</span>
+
+<span class="keyword">var</span> p = <span class="type">Point</span>(x: <span class="number">1</span>, y: <span class="number">2</span>)
+p = <span class="call">memberFunction</span>(p)()
+</code></pre><h3>Key paths</h3><p>Swift's equivalent to pointer-to-data-members is a feature called <em>key paths</em>. A key path abstracts of a chain of nested member accesses starting from a given instance. In its simplest form, a key path is like pointer to data member, and is formed with the syntax <code>\Type.propertyName</code>. For example, let's reference the <code>x</code> property of <code>Point</code>:</p><pre><code><span class="keyword">let</span> member = \<span class="type">Point</span>.<span class="property">x</span>
+</code></pre><p>The type of <code>member</code> is <code>WritableKeyPath&lt;Point, Int&gt;</code>, i.e., a key path that starts at an instance of <code>Point</code> and refers to a value of type <code>Int</code>, much like the pointer-to-data-member we'd get from the <code>&amp;Point::x</code> we wrote in C++. <a href="https://developer.apple.com/documentation/swift/writablekeypath"><code>WritableKeyPath</code></a> is used for key paths that can both read and write the value (i.e., because it's a <code>var</code>). If <code>x</code> were instead a <code>let</code>, we would get an instance of <a href="https://developer.apple.com/documentation/swift/keypath"><code>KeyPath</code></a>, which doesn't allow mutation.</p><p>Now that we have the key path <code>member</code>, we can use it to access the member with the <code>keyPath</code> subscript on a particular instance. For example:</p><pre><code><span class="keyword">var</span> p = <span class="type">Point</span>(x: <span class="number">1</span>, y: <span class="number">2</span>)
+p[keyPath: member] = <span class="number">3</span>        <span class="comment">// update p.x to the value 3</span>
+</code></pre><p>This subscript, which is available on every Swift type, is equivalent to the C++ <code>.*</code> operator: it takes a key path whose root type (in our case, <code>Point</code>) is the same as the type being subscripted, and evaluates to a value of the referenced property (an <code>Int</code>, in our case).</p><p>But Swift key paths can do a lot more than C++ pointer-to-data-members, because they can represent an arbitrary <em>path</em>. For one, they aren't limited to stored properties. For example, let's imagine there's an <code>absoluteValue</code> property on <code>Int</code>, like this:</p><pre><code><span class="keyword">extension</span> <span class="type">Int</span> {
+  <span class="keyword">var</span> absoluteValue: <span class="type">Int</span> {
+    <span class="keyword">self</span> &lt; <span class="number">0</span> ? -self : <span class="keyword">self</span>
+  }
+}
+</code></pre><p>A key path <code>\Point.absoluteValue</code> will have type <code>KeyPath&lt;Point, Int&gt;</code>, since there's no setter and it's therefore not writable. When passed into the <code>[keyPath:]</code> subscript, the result will be evaluated by calling the getter. As with the rest of Swift, the difference between a stored and computed property is not usually observable to the user, but there's an exception: one can retrieve the physical offset of a keypath that refers to a stored property with the <a href="https://developer.apple.com/documentation/swift/memorylayout/offset(of:)"><code>MemoryLayout.offset(of:)</code></a> operation:</p><pre><code><span class="keyword">if let</span> offset = <span class="type">MemoryLayout</span>&lt;<span class="type">Point</span>&gt;.<span class="call">offset</span>(of: member) {
+  <span class="call">print</span>(<span class="string">"Offset of stored property referenced by the member is</span> \(offset)<span class="string">"</span>)
+}
+</code></pre><p>Key paths can also subscript into their instances and perform chains of accesses. For example, let's imagine that we have an array of points like this:</p><pre><code><span class="keyword">var</span> points: [<span class="type">Point</span>] = ...
+</code></pre><p>We can form a key path that extracts the absolute value of the <code>y</code> component of a particular element in an array of points, like this:</p><pre><code><span class="keyword">let</span> index = <span class="number">2</span>
+<span class="keyword">let</span> deepMember = \[<span class="type">Point</span>].[index].y.<span class="property">absoluteValue</span> <span class="comment">// has type KeyPath&lt;[Point], Int&gt;</span>
+</code></pre><p>Now, if we evaluate <code>points[keyPath: deepMember]</code>, we subscript the array (by <code>index</code>), extract the <code>y</code> value, then compute the absolute value of that. Now, much of the time, you won't be writing out these long key path chains as literals like this. Key paths are <em>composable</em>, so you can take a keypath and <a href="https://developer.apple.com/documentation/swift/anykeypath/appending(path:)">append</a> another key path to it to form a longer key path. For example, we could create an key path that references a specific point from the array:</p><pre><code><span class="keyword">let</span> indexedMember = \[<span class="type">Point</span>].[index]   <span class="comment">// has type WritableKeyPath&lt;[Point], Point&gt;</span>
+</code></pre><p>Now, we can extend this key path to access whichever member of <code>Point</code> we referenced by <code>member</code> originally:</p><pre><code><span class="keyword">let</span> pointMember = indexedMember.<span class="call">appending</span>(path: member)   <span class="comment">// produces a WritableKeyPath&lt;[Point], Int&gt;</span>
+</code></pre><p>The <code>appending(path:)</code> operation requires that the root of the second key path (<code>member</code> in our example) be the same as the value of the first key path (<code>indexedMember</code> in our example), because we're effectively gluing the two chains of accesses together.</p><p>Key paths generalize the idea of "pointer to data member" to include computed properties, subscripts, and chains of nested accesses. They're useful for describing how to extract parts of data in an abstract manner. They also play a central role in the ability to proxy properties in Swift.</p><h2>Proxied members</h2><p>Sometimes, you want to have a type that acts as a proxy for some other type. For example, perhaps you have a <code>Box&lt;T&gt;</code> type that heap-allocates a value of type <code>T</code> so you can share it. In Swift, that could look like this:</p><pre><code><span class="keyword">class</span> Box&lt;T&gt; {
+  <span class="keyword">var</span> stored: <span class="type">T</span>
+  
+  <span class="keyword">init</span>(stored: <span class="type">T</span>) {
+    <span class="keyword">self</span>.<span class="property">stored</span> = stored
+  }
+}
+</code></pre><p>However, this can be a bit annoying to use: if I have a <code>Box&lt;Point&gt;</code> named <code>boxedPoint</code>, I can't refer to <code>boxedPoint.x</code> directly: I have to go through <code>boxedPoint.stored.x</code>. If this were C++, we'd likely overload <code>operator-&gt;</code> to return the underlying type. For example, our C++ <code>Box</code> type might look like this:</p><pre><code>template&lt;typename <span class="type">T</span>&gt;
+<span class="keyword">class</span> Box {
+  <span class="type">T</span> *stored;
+  
+public:
+  <span class="type">T</span> &amp;operator-&gt;() { <span class="keyword">return</span> *stored; }
+};
+</code></pre><p>In C++, this would let you write <code>boxedPoint-&gt;x</code> to access the <code>x</code> field of the stored point. Swift doesn't have a specific equivalent to <code>operator-&gt;</code>. However, Swift does have the ability to intercept normal <code>.</code> access to provide similar behavior for accessing properties using <code>@dynamicMemberLookup</code>. Let's update our <code>Box</code> type to use this feature:</p><pre><code><span class="keyword">@dynamicMemberLookup
+class</span> Box&lt;T&gt; {
+  <span class="keyword">var</span> stored: <span class="type">T</span>
+  
+  <span class="keyword">init</span>(stored: <span class="type">T</span>) {
+    <span class="keyword">self</span>.<span class="property">stored</span> = stored
+  }
+    
+  <span class="keyword">subscript</span>&lt;U&gt;(dynamicMember keyPath: <span class="type">KeyPath</span>&lt;<span class="type">T</span>, <span class="type">U</span>&gt;) -&gt; <span class="type">U</span> {
+    stored[keyPath: keyPath]
+  }
+
+  <span class="keyword">subscript</span>&lt;U&gt;(dynamicMember keyPath: <span class="type">WritableKeyPath</span>&lt;<span class="type">T</span>, <span class="type">U</span>&gt;) -&gt; <span class="type">U</span> {
+    <span class="keyword">get</span> { stored[keyPath: keyPath] }
+    <span class="keyword">set</span> { stored[keyPath: keyPath] = newValue }
+  }
+}
+</code></pre><p>The <code>@dynamicMemberLookup</code> feature enables the behavior we want, but the subscript <code>[dynamicMember:]</code> is where the real magic happens. This subscript accepts a <code>KeyPath</code> (or <code>WritableKeyPath</code>) starting at a <code>T</code> (the type of the boxed value) and producing a <code>U</code>. The implementation of the subscript applies the key path to the <code>stored</code> value to get (or set) a value of type <code>U</code>.</p><p>Now, when we write something like</p><pre><code>boxedPoint.<span class="property">x</span>
+</code></pre><p>the compiler notes that <code>Box</code> is marked <code>@dynamicMemberLookup</code> and that there is no member named <code>x</code> in it. So, it looks to see whether there is a member <code>x</code> in the root type of the key path for the <code>[dynamicMember:]</code> subscript. There is, so the code above is desugared to</p><pre><code>boxedPoint[dynamicMember: \<span class="type">Point</span>.<span class="property">x</span>]
+</code></pre><p>This is a rather different approach: we've effectively overloaded the "dot" operator by projecting the properties of <code>T</code> onto <code>Box&lt;T&gt;</code>. In our simple case here, it's just syntactic sugar to prevent <code>.stored</code> everywhere. However, we can do more interesting things by manipulating the key paths themselves. For example, we could keep a log of the updates made to the storage:</p><pre><code><span class="keyword">@dynamicMemberLookup
+class</span> LoggingBox&lt;T&gt; {
+  <span class="keyword">var</span> stored: <span class="type">T</span>
+  <span class="keyword">var</span> log: [(<span class="type">PartialKeyPath</span>&lt;<span class="type">T</span>&gt;, oldValue: <span class="type">Any</span>, newValue: <span class="type">Any</span>)] = []
+  
+  <span class="keyword">init</span>(stored: <span class="type">T</span>) {
+    <span class="keyword">self</span>.<span class="property">stored</span> = stored
+  }
+      
+  <span class="keyword">subscript</span>&lt;U&gt;(dynamicMember keyPath: <span class="type">WritableKeyPath</span>&lt;<span class="type">T</span>, <span class="type">U</span>&gt;) -&gt; <span class="type">U</span> {
+    <span class="keyword">get</span> { stored[keyPath: keyPath] }
+    <span class="keyword">set</span> {
+      log.<span class="call">append</span>((keyPath, oldValue: stored[keyPath: keyPath], newValue: newValue))
+      stored[keyPath: keyPath] = newValue
+    }
+  }
+}
+</code></pre><p>It's also possible for the subscript <code>[dynamicMember:]</code> to return something other than the result of accessing the key path. For example, an <a href="https://en.wikipedia.org/wiki/Object–relational_mapping">ORM</a> library might want a way to describe an arbitrary database query that produces a value of type <code>T</code>. Drilling down into specific members of the query shouldn't eagerly evaluate it: rather, they should produce another query with the type of the member. It would look something like this:</p><pre><code><span class="keyword">@dynamicMemberLookup
+struct</span> Query&lt;T&gt; {
+  <span class="keyword">subscript</span>&lt;U&gt;(dynamicMember keyPath: <span class="type">KeyPath</span>&lt;<span class="type">T</span>, <span class="type">U</span>&gt;) -&gt; <span class="type">Query</span>&lt;<span class="type">U</span>&gt; { ... }
+  
+  <span class="keyword">func</span> evaluate() -&gt; <span class="type">T</span> { ... }
+}
+</code></pre><p>Therefore, if we have a <code>let query: Query&lt;Point&gt;</code>, then <code>query.x</code> would produce a <code>Query&lt;Int&gt;</code> that extracts just the <code>x</code> component from the queried point.</p><h2>Going dynamic</h2><p>Both <code>callAsFunction</code> (for <code>operator()</code>) and the <code>@dynamicMemberLookup</code> (sort of like an overloadable <code>operator.</code>) are strongly-typed mechanisms that are suitable when you're working with well-typed information. However, sometimes you want something a bit more... dynamic. For example, you might be interoperating with a more dynamic language like Python or JavaScript where we don't have static information about the various properties and methods. There are existing Swift libraries for both cases (<a href="https://github.com/pvieito/PythonKit"><code>PythonKit</code></a> and <a href="https://github.com/swiftwasm/JavaScriptKit"><code>JavaScriptKit</code></a>, respectively), but I'll illustrate with Python.</p><p>In Python, everything is an object, so a Swift library to interoperate with Python will have some wrapper around an arbitrary Python object:</p><pre><code><span class="keyword">struct</span> PythonObject {
+  <span class="comment">// hold reference to Python object</span>
+}
+</code></pre><p>Now, a Python object can hold a value of any type at runtime. We'd like to be able to access the properties and methods of any Python object, including calling methods, but we don't know the names of any of them in our Swift code. Let's say we want to use a Python class defined like this:</p><pre><code><span class="keyword">class</span> Dog:
+    def __init__(<span class="keyword">self</span>, name):
+        <span class="keyword">self</span>.<span class="property">name</span> = name
+        <span class="keyword">self</span>.<span class="property">tricks</span> = []    
+
+    def <span class="call">add_trick</span>(<span class="keyword">self</span>, trick):
+        <span class="keyword">self</span>.<span class="property">tricks</span>.<span class="call">append</span>(trick)
+</code></pre><p>Let's assume we can get an instance of the Python type <code>Dog</code> into a <code>PythonObject</code> somehow:</p><pre><code><span class="keyword">let</span> pyObj: <span class="type">PythonObject</span> = <span class="comment">/*create the Dog instance somehow */</span>
+</code></pre><p>How would we go about accessing its <code>tricks</code> property or adding a new trick? The names <code>tricks</code> and <code>add_trick</code> aren't known in Swift, so we're probably going to have to use string literals for everything, e.g.</p><pre><code>pyObj[<span class="string">"add_trick"</span>](newTrick)   <span class="comment">// Python equivalent: pyObj.add_trick(newTrick)</span>
+<span class="call">print</span>(pyObj[<span class="string">"tricks"</span>])         <span class="comment">// Python equivalent: pyObj.tricks</span>
+</code></pre><p>That can work, but it's fairly ugly. And if we want to support Python features like keyword arguments, it's going to get uglier:</p><pre><code>pyObj[<span class="string">"add_trick"</span>]((<span class="string">"trick"</span>, newTrick))    <span class="comment">// Python equivalent: pyObj.add_trick(trick=newTrick)</span>
+</code></pre><p>Fortunately, the strongly type-safe Swift features we've talked about for calling a value as a function and accessing a projected property have dynamic versions that work on strings. This lets us get to Swift code looks a whole lot more like the original Python, making it easier to interoperate. The features we are are <code>@dynamicCallable</code> and the string form of <code>@dynamicMemberLookup</code>. Let's see both together:</p><pre><code><span class="keyword">@dynamicCallable
+@dynamicMemberLookup
+struct</span> PythonObject {
+  <span class="keyword">func</span> dynamicallyCall(withKeywordArguments: <span class="type">KeyValuePairs</span>&lt;<span class="type">String</span>, <span class="type">PythonObject</span>&gt;) -&gt; <span class="type">PythonObject</span> { ... }
+  
+  <span class="keyword">subscript</span>(dynamicMember name: <span class="type">String</span>) -&gt; <span class="type">PythonObject</span> {
+    <span class="keyword">get</span> { ... }
+    <span class="keyword">set</span> { ... }
+  }
+}
+</code></pre><p>The <code>dynamicallyCall(withKeywordArguments:)</code> method enables calls to an instance of <code>PythonObject</code> with any arguments, including argument labels (where present), so long as all of the argument values are all <code>PythonObject</code>s. This means that if we have a Python object that's a method or has a <code>__call__</code> method (Python's version of <code>operator()</code>), we can invoke it with something like this:</p><pre><code><span class="call">pyObj</span>(a, limit: b)
+</code></pre><p>And the compiler will translate this into a call to <code>dynamicallyCall</code> with a dictionary literal that stringifies the argument names:</p><pre><code>pyObj.<span class="call">dynamicallyCall</span>(withKeywordArguments: [<span class="string">""</span>: a, <span class="string">"limit"</span>: b])
+</code></pre><p>We use <a href="https://developer.apple.com/documentation/swift/keyvaluepairs"><code>KeyValuePairs</code></a> from the standard library because it maintains ordering and allows duplicate keys, unlike <code>Dictionary</code>, but still supports dictionary literal syntax. The actual implementation of <code>dynamicallyCall(withKeywordArguments:)</code> can then extract the Python objects and form the underlying call.</p><p>To access members on a Python object, we again define the subscript <code>[dynamicMember:]</code>, but this time it takes the <em>name</em> of the member as a <code>String</code>. This trades away the type safety of the key-path solution to provide more flexibility, because we can refer to any name and it'll be resolved dynamically. With this in place, if we write</p><pre><code>pyObj.<span class="property">tricks</span>
+</code></pre><p>the Swift compiler will translate that into</p><pre><code>pyObj[dynamicMember: <span class="string">"tricks"</span>]
+</code></pre><p>to access the property. With these two customizations in hand, we can now write Swift code that feels a lot like the equivalent Python to access Python properties and methods:</p><pre><code>pyObj.<span class="call">add_trick</span>(trick: newTrick)
+<span class="call">print</span>(pyObj.<span class="property">tricks</span>)
+</code></pre><p>Of course, one shouldn't be too eager to throw away type information without cause, so don't reach for these string-based features first. However, when you're interacting with something very dynamic---whether it's completely unstructured data or an untyped language---these string-based operator overloading features can provide clearer code than the string-literal-laden alternatives.</p><h2>Wrap-up and what's next?</h2><p>Swift's support for operator overloading is fairly extensive, allowing libraries to provide rich APIs. But as in C++, great power comes with great responsibility: it's absolutely possible to go wild with these features and create something that's utterly indecipherable to users of your library.</p><p>Next we're going to look at one last set of features for embedding domain-specific languages in Swift.</p>]]></content:encoded></item><item><guid isPermaLink="true">https://www.douggregor.net/posts/swift-for-cxx-practitioners-literals</guid><title>Swift for C++ Practitioners, Part 9: Extensible Literals</title><description>Swift for C++ Practitioners, Part 9: Extensible Literals</description><link>https://www.douggregor.net/posts/swift-for-cxx-practitioners-literals</link><pubDate>Mon, 24 Jun 2024 23:58:00 -0700</pubDate><content:encoded><![CDATA[<h1>Swift for C++ Practitioners, Part 9: Extensible Literals</h1><p>One of the things that I <em>really</em> liked about C++ was the ability to create great libraries: the combination of classes, templates, and operator overloading made it possible to create abstractions that nicely describe a subject domain (whether graphs, matrices, parsers, whatever) within a library.</p><p>Swift provides similar affordances to create the right abstractions to model a subject domain. I've already talked about <a href="../swift-for-cxx-practitioners-value-types">value types</a> and <a href="swift-for-cxx-practitioners-generics.md">generics</a> at length, so we won't go into those again. However, Swift also has additional features that let you customize the language to your needs, including the ability to interact with literals (like <code>0</code> or <code>"https://douggregor.net"</code>), overload operators to your heart's content, provide specific access behavior for properties, or define your own declarative sub-language (DSL) embedded in Swift. These features, used well, can enable beautiful library designs that get at the heart of describing a domain.</p><p>I'm going to tackle language extensibility in several different posts, because there's a lot to explore, including a few side quests into other parts of the language. For this post, we're going to dive ito something that you use everyday but probably don't think about much in C++: literals.</p><p>Literals are constant values written in the source code. In Swift, there are quite a few different kinds of literals:</p><ul><li><em>Integer literals</em>: numbers like <code>42</code> and <code>-10</code>.</li><li><em>Floating-point literals</em>: numbers like <code>3.14159</code></li><li><em>Boolean literals</em>: <code>true</code> and <code>false</code></li><li><em>String literals</em>: strings like <code>"Hello, world!"</code></li><li><em>Interpolated string literals</em>: strings with interpolations in them, such as <code>"Hello, \(name)!"</code></li><li><em>Nil literal</em>: <code>nil</code></li><li><em>Array literal</em>: an array of things, such as <code>[a, b, c]</code></li><li><em>Dictionary literal</em>: a list of key-value pairs, such as <code>[a: x, b: y, c: z]</code></li></ul><p>In most programming languages, literals have a specific type. <code>0</code> in C++ is an <code>int</code>, <code>3.14159</code> is a <code>double</code>. C++ also has suffixes that are part of the literal to let you change the literal type: <code>0u</code> is an <code>unsigned int</code>, <code>3.14159f</code> is a <code>float</code>, and so on. C++ also allows many kinds of implicit conversion, which lets us be somewhat cavalier with the exact type of literals: you can write <code>int8_t x = 64;</code> and the literal <code>int</code> will be implicitly converted to <code>int8_t</code>. One hopes to get a compiler warning if the literal doesn't fit into the type of <code>x</code>.</p><p>In Swift, literals pick up the type of their enclosing context. So, we can write the equivalent to the above <code>x</code> as:</p><pre><code><span class="keyword">let</span> x: <span class="type">UInt8</span> = <span class="number">64</span>
 </code></pre><p>and the literal <code>64</code> will pick up the type <code>UInt8</code> from its context. You can also be explicit about what type you want your literal to have by using the <code>as</code> operator: <code>64 as UInt8</code> will ensure that the integer literal <code>64</code> is treated as a <code>UInt8</code>. You can use the <code>as</code> operator to perform an implicit conversion explicitly in Swift: <code>x as Any</code> will put the value of <code>x</code> into a value types as <code>Any</code>.</p><p>With the so-called "collection" literals (for arrays and dictionaries), the contextual type can affect both the collection type and its element type. For example, if I were to write:</p><pre><code><span class="keyword">let</span> numbers: <span class="type">Set</span>&lt;<span class="type">UInt8</span>&gt; = [ <span class="number">1</span>, <span class="number">2</span>, <span class="number">4</span>, <span class="number">8</span>, <span class="number">16</span>, <span class="number">32</span>, <span class="number">64</span> ]
 </code></pre><p>Then the array literal has type <code>Set&lt;UInt8&gt;</code>, meaning that each of the elements in the array literal will have type <code>UInt8</code>. This inference can go both ways: consider something like this:</p><pre><code><span class="keyword">let</span> someNumbers: <span class="type">Set</span>&lt;<span class="keyword">_</span>&gt; = [ <span class="number">1</span> <span class="keyword">as</span> <span class="type">UInt8</span>, <span class="number">2</span>, <span class="number">4</span>, <span class="number">8</span>, <span class="number">16</span>, <span class="number">32</span>, <span class="number">64</span> ]
 </code></pre><p>The <code>_</code> is a placeholder for "I don't want to write the type, figure it out for me". I've specified that I want a <code>Set</code>, so the array literal will be of a <code>Set</code> type, but the element type will be dictated by the array literal elements themselves: here the only one given a specific type is given <code>UInt8</code>, so the type of <code>someNumbers</code> will be <code>Set&lt;UInt8&gt;</code>.</p><p>If there is no contextual type for a literal, it will default to an appropriate type: <code>Bool</code> for Boolean literals, <code>Int</code> for integer literals, <code>Double</code> for floating-point literals, <code>String</code> for string literals, <code>Array</code> for array literals, and <code>Dictionary</code> for dictionary literals. This is what enables type inference for something like</p><pre><code><span class="keyword">let</span> favoriteConstants = [ <span class="string">"π"</span> : <span class="number">3.14159</span>, <span class="string">"e"</span>: <span class="number">2.71828</span> ]
