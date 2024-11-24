@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta property="og:site_name" content="Doug's Compiler Corner"/><link rel="canonical" href="https://www.douggregor.net/posts/swift-for-cxx-practitioners-dsls"/><meta name="twitter:url" content="https://www.douggregor.net/posts/swift-for-cxx-practitioners-dsls"/><meta property="og:url" content="https://www.douggregor.net/posts/swift-for-cxx-practitioners-dsls"/><title>Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders | Doug's Compiler Corner</title><meta name="twitter:title" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders | Doug's Compiler Corner"/><meta property="og:title" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders | Doug's Compiler Corner"/><meta name="description" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages"/><meta name="twitter:description" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages"/><meta property="og:description" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages"/><meta name="twitter:card" content="summary"/><link rel="stylesheet" href="/styles.css" type="text/css"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><link rel="shortcut icon" href="/images/favicon.png" type="image/png"/><link rel="alternate" href="/feed.rss" type="application/rss+xml" title="Subscribe to Doug's Compiler Corner"/></head><body class="item-page"><header><div class="wrapper"><a href="/" class="site-name">Doug's Compiler Corner</a><nav><ul><li><a href="/about">About</a></li><li><a href="/posts" class="selected">Posts</a></li></ul></nav></div></header><div class="wrapper"><article><p>Originally posted on 2024-11-23 17:30:00 +0000</p><p>Last updated on 2024-11-24 05:30:58 +0000</p><div class="content"><h1>Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders</h1><p>The <a href="../swift-for-cxx-practitioners-operators">prior installment</a> of this series covered operator overloading in Swift in great detail. As in C++, operator overloading can be used to great effect to build Domain-Specific Languages embedded within normal source code. When used well, these Domain-Specific Embedded Languages (DSELs) can make it easy to express your ideas in a specific domain while still leveraging all of the tools of the general-purpose programming language in which they are embedded. (Used poorly, it can be make a mess... so let's not do that.)</p><p>Swift provides some additional features specifically to help with the construction of DSELs. All of these are syntactic sugar: you can express what they do in Swift code without them, but doing so often requires a lot of boilerplate that can leave a bitter taste in your mouth. (Boiled plates, yuck!)</p><h2>Result builders</h2><p>There is a large class of DSLs that are <em>declarative</em> in nature, meaning that you state (declare) what you want but not how it should be accomplished. Then, the library or tool that processes the declarative DSL will turn that into a computation that produces the desired result. While there are some programming languages that are declarative (such as <a href="https://en.wikipedia.org/wiki/Prolog">Prolog</a>), neither Swift nor C++ are declarative languages: they're both imperative with some functional elements, but however you spin it, in Swift and C++ it's up to you to describe how to compute the answer you want.</p><p>Within imperative and functional languages, there are often libraries that provide a declarative API. For example, a regular expression library like <code>std::regex</code> has an interface to describe the shape of strings you want to match, and the library "compiles" that into an efficient state machine to use when matching the regular expression against input strings. To achieve this, the input language (regular expressions) is constrained to something that admits an efficient implementation. This is an important aspect of declarative DSLs: constraints are key to keeping code using the DSL easy to reason about and ensure that efficient implementation is possible. Other common kinds of DSLs include structured output (e.g., to HTML) and declarative UI libraries.</p><p>Swift's <em>result builders</em> provide a way to embed a declarative DSL directly in Swift. The inputs to result builders are blocks of code---closures---with a restricted form that gets translated into a structured form that the library can compute. Each kind of entity allowed within the closures, such as expressions and <code>if</code> statements, can be mapped by the result builder into another value, with the results being combined at the end of each block. That's all very abstract, so let's get to the CODE!</p><h2>A small HTML DSL</h2><p>Emitting HTML from a program is a simple but tedious exercise: tags need to be typed correctly and matched, and the moment you have any logic in there, you're concatenating strings together everywhere. Multi-line strings and interpolation can reduce the boilerplate a bit, but it can still be messy even for simple things:</p><pre><code><span class="keyword">let</span> output = <span class="string">"""
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta property="og:site_name" content="Doug's Compiler Corner"/><link rel="canonical" href="https://www.douggregor.net/posts/swift-for-cxx-practitioners-dsls"/><meta name="twitter:url" content="https://www.douggregor.net/posts/swift-for-cxx-practitioners-dsls"/><meta property="og:url" content="https://www.douggregor.net/posts/swift-for-cxx-practitioners-dsls"/><title>Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders | Doug's Compiler Corner</title><meta name="twitter:title" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders | Doug's Compiler Corner"/><meta property="og:title" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders | Doug's Compiler Corner"/><meta name="description" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages"/><meta name="twitter:description" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages"/><meta property="og:description" content="Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages"/><meta name="twitter:card" content="summary"/><link rel="stylesheet" href="/styles.css" type="text/css"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><link rel="shortcut icon" href="/images/favicon.png" type="image/png"/><link rel="alternate" href="/feed.rss" type="application/rss+xml" title="Subscribe to Doug's Compiler Corner"/></head><body class="item-page"><header><div class="wrapper"><a href="/" class="site-name">Doug's Compiler Corner</a><nav><ul><li><a href="/about">About</a></li><li><a href="/posts" class="selected">Posts</a></li></ul></nav></div></header><div class="wrapper"><article><p>Originally posted on 2024-11-23 17:30:00 +0000</p><p>Last updated on 2024-11-24 06:47:01 +0000</p><div class="content"><h1>Swift for C++ Practitioners, Part 11: Domain-Specific (Embedded) Languages with Result Builders</h1><p>The <a href="../swift-for-cxx-practitioners-operators">prior installment</a> of this series covered operator overloading in Swift in great detail. As in C++, operator overloading can be used to great effect to build Domain-Specific Languages embedded within normal source code. When used well, these Domain-Specific Embedded Languages (DSELs) can make it easy to express your ideas in a specific domain while still leveraging all of the tools of the general-purpose programming language in which they are embedded. (Used poorly, it can be make a mess... so let's not do that.)</p><p>Swift provides some additional features specifically to help with the construction of DSELs. All of these are syntactic sugar: you can express what they do in Swift code without them, but doing so often requires a lot of boilerplate that can leave a bitter taste in your mouth. (Boiled plates, yuck!)</p><h2>Result builders</h2><p>There is a large class of DSLs that are <em>declarative</em> in nature, meaning that you state (declare) what you want but not how it should be accomplished. Then, the library or tool that processes the declarative DSL will turn that into a computation that produces the desired result. While there are some programming languages that are declarative (such as <a href="https://en.wikipedia.org/wiki/Prolog">Prolog</a>), neither Swift nor C++ are declarative languages: they're both imperative with some functional elements, but however you spin it, in Swift and C++ it's up to you to describe how to compute the answer you want.</p><p>Within imperative and functional languages, there are often libraries that provide a declarative API. For example, a regular expression library like <code>std::regex</code> has an interface to describe the shape of strings you want to match, and the library "compiles" that into an efficient state machine to use when matching the regular expression against input strings. To achieve this, the input language (regular expressions) is constrained to something that admits an efficient implementation. This is an important aspect of declarative DSLs: constraints are key to keeping code using the DSL easy to reason about and ensure that efficient implementation is possible. Other common kinds of DSLs include structured output (e.g., to HTML) and declarative UI libraries.</p><p>Swift's <em>result builders</em> provide a way to embed a declarative DSL directly in Swift. The inputs to result builders are blocks of code---closures---with a restricted form that gets translated into a structured form that the library can compute. Each kind of entity allowed within the closures, such as expressions and <code>if</code> statements, can be mapped by the result builder into another value, with the results being combined at the end of each block. That's all very abstract, so let's get to the CODE!</p><h2>A small HTML DSL</h2><p>Emitting HTML from a program is a simple but tedious exercise: tags need to be typed correctly and matched, and the moment you have any logic in there, you're concatenating strings together everywhere. Multi-line strings and interpolation can reduce the boilerplate a bit, but it can still be messy even for simple things:</p><pre><code><span class="keyword">let</span> output = <span class="string">"""
   &lt;html&gt;
     &lt;body&gt;
       &lt;div&gt;</span>
@@ -115,54 +115,21 @@ struct</span> HTMLBuilder {
   }
 }
 </code></pre><p>Note that each of the functions here takes in some <code>any HTMLElement</code> instances and produces an <code>any HTMLElement</code>. The so-called <em>result builder transform</em> produces calls to these static methods based on language syntax. If you read the earlier post in this series about <a href="../swift-for-cxx-practitioners-literals"><code>ExpressibleByStringInterpolation</code></a>, this approach of calling functions on a builder might look familiar. Here are how some of the calls get formed in the result builder transform:</p><ul><li><code>buildExpression</code> is called to transform a single value in a closure into something that can be combined into a block. For example, the string value <code>"Call me Ishmael. Some years ago..."</code> will be passed into it via</li></ul><pre><code>   <span class="type">HTMLBuilder</span>.<span class="call">buildExpression</span>(`<span class="string">"Call me Ishmael. Some years ago..."</span>`)
-  ```
-
-  <span class="type">If</span> `buildExpression` is not provided, <span class="type">Swift</span> applies the identity function. <span class="type">Our</span> `<span class="type">HTMLBuilder</span>` example doesn't actually need it at all, because it's effectively just the identity function, but it's possible to <span class="keyword">do some</span> translation of values here to <span class="keyword">get</span> them into a common type.
-
-* `buildBlock` is called to gather all of the results together from a single statement block <span class="keyword">in</span> the closure. <span class="type">For</span> example, if a closure had two strings <span class="keyword">in</span> it, e.<span class="property">g</span>., 
-
-  ```<span class="call">swift</span>
-  {
+</code></pre><p>If <code>buildExpression</code> is not provided, Swift applies the identity function. Our <code>HTMLBuilder</code> example doesn't actually need it at all, because it's effectively just the identity function, but it's possible to do some translation of values here to get them into a common type.</p><ul><li><code>buildBlock</code> is called to gather all of the results together from a single statement block in the closure. For example, if a closure had two strings in it, e.g.,</li></ul><pre><code>   {
     <span class="string">"hello"
     "world"</span>
   }
-  ```
-
-  <span class="type">Then</span>  `buildBlock` would be called <span class="keyword">as</span> `<span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(<span class="string">"hello"</span>, <span class="string">"world"</span>)`.
-
-* `buildOptional` is called when there <span class="keyword">is</span> an `if` statement that may or may not produce a value. <span class="type">For</span> example, consider the chapter title:
-
-  ```swift
-  <span class="keyword">if let</span> chapterTitle {
+</code></pre><p>Then <code>buildBlock</code> would be called as <code>HTMLBuilder.buildBlock("hello", "world")</code>.</p><ul><li><code>buildOptional</code> is called when there is an <code>if</code> statement that may or may not produce a value. For example, consider the chapter title:</li></ul><pre><code>   <span class="keyword">if let</span> chapterTitle {
     <span class="call">h1</span> { chapterTitle }
   }
-  ```
-
-  <span class="type">Here</span>, if `chapterTitle` was non-`<span class="keyword">nil</span>`, we'll have an `h1` tag with the chapter title <span class="keyword">in</span> it. <span class="type">Otherwise</span>, nothing! <span class="type">The</span> result builder transform maps this <span class="keyword">as</span> a call to `buildOptional` with either the result of the `if` block, or a `nil`. <span class="type">Our</span> `<span class="type">HTMLBuilder</span>` chooses to handle this via an array containing either zero or one element.
-
-* `<span class="call">buildEither</span>(first:)` and `<span class="call">buildEither</span>(second:)` are used <span class="keyword">for</span> `if` statements that also have an `else`. <span class="type">If</span> the `if` evaluates <span class="keyword">true</span>, `<span class="call">buildEither</span>(first:)` ends up getting called with the value produced by the `if` block. <span class="type">If</span> the `if` evaluates <span class="keyword">false</span>, `<span class="call">buildEither</span>(second:)` gets called with the value produced by the `else` block. <span class="type">Here</span>'s another made-up example:
-
-  ```swift
-  <span class="keyword">if let</span> dedication {
+</code></pre><p>Here, if <code>chapterTitle</code> was non-<code>nil</code>, we'll have an <code>h1</code> tag with the chapter title in it. Otherwise, nothing! The result builder transform maps this as a call to <code>buildOptional</code> with either the result of the <code>if</code> block, or a <code>nil</code>. Our <code>HTMLBuilder</code> chooses to handle this via an array containing either zero or one element.</p><ul><li><code>buildEither(first:)</code> and <code>buildEither(second:)</code> are used for <code>if</code> statements that also have an <code>else</code>. If the <code>if</code> evaluates true, <code>buildEither(first:)</code> ends up getting called with the value produced by the <code>if</code> block. If the <code>if</code> evaluates false, <code>buildEither(second:)</code> gets called with the value produced by the <code>else</code> block. Here's another made-up example:</li></ul><pre><code>   <span class="keyword">if let</span> dedication {
     <span class="call">para</span> { dedication }
   } <span class="keyword">else</span> {
     <span class="call">para</span> { <span class="string">"To all the world's children."</span> }
   }
-  ```
-
-  <span class="type">This</span> translates into, roughly,
-
-  ```swift
-  dedication != <span class="keyword">nil</span> ? <span class="type">HTMLBuilder</span>.<span class="call">buildEither</span>(first: <span class="call">para</span> { dedication! })
+</code></pre><p>This translates into, roughly,</p><pre><code>   dedication != <span class="keyword">nil</span> ? <span class="type">HTMLBuilder</span>.<span class="call">buildEither</span>(first: <span class="call">para</span> { dedication! })
                     : <span class="type">HTMLBuilder</span>.<span class="call">buildEither</span>(second: <span class="call">para</span> { <span class="string">"To all the world's children."</span> })
-  ```
-
-  <span class="type">The</span> actual implementation generalizes to arbitrary `if`-`<span class="keyword">else</span>` chains (sometimes with a `buildOptional` at the end) and even arbitrary `switch` statements, which are themselves essentially just syntactic sugar <span class="keyword">for</span> an `if`-`<span class="keyword">else</span>` chain. `<span class="call">buildEither</span>(first:)`, `<span class="call">buildEither</span>(second:)`, and `buildOptional` are all optional: <span class="keyword">if</span> a result builder omits them, it cannot be applied to closures that include `if` or `switch` statements.
-
-* `buildArray` is used to capture the results of a `for` loop, which are passed into `buildArray` as an array of captured values. <span class="type">Our</span> original example <span class="keyword">is</span> a bit too pre-baked, but we could imagine generating the chapters and their paragraphs <span class="keyword">in</span> nested `for` loops:
-
-  ```swift
-  <span class="keyword">for</span> chapter <span class="keyword">in</span> chapters {
+</code></pre><p>The actual implementation generalizes to arbitrary <code>if</code>-<code>else</code> chains (sometimes with a <code>buildOptional</code> at the end) and even arbitrary <code>switch</code> statements, which are themselves essentially just syntactic sugar for an <code>if</code>-<code>else</code> chain. <code>buildEither(first:)</code>, <code>buildEither(second:)</code>, and <code>buildOptional</code> are all optional: if a result builder omits them, it cannot be applied to closures that include <code>if</code> or <code>switch</code> statements.</p><ul><li><code>buildArray</code> is used to capture the results of a <code>for</code> loop, which are passed into <code>buildArray</code> as an array of captured values. Our original example is a bit too pre-baked, but we could imagine generating the chapters and their paragraphs in nested <code>for</code> loops:</li></ul><pre><code>   <span class="keyword">for</span> chapter <span class="keyword">in</span> chapters {
     <span class="call">div</span> {
       <span class="keyword">if let</span> chapterTitle = chapter.<span class="property">title</span> {
         <span class="call">h1</span> { chapterTitle }
@@ -173,368 +140,248 @@ struct</span> HTMLBuilder {
       }
     }
   }
-  ```
+</code></pre><p>The inner <code>for</code> loop executes, collecting new <code>any HTMLElement</code> values for each iteration. Then, the resulting array is passed to <code>HTMLBuilder.buildArray</code>. That result becomes part of the <code>buildBlock</code> for the enclosing <code>for</code> loop's body, and each of those values gets collected into an array for the outermost call to <code>HTMLBuilder.buildArray</code>. Like with the previous operations, <code>buildArray</code> is optional: if not provided, the result builder cannot be applied to a closure containing <code>for</code> loops.</p><p>Going back to our original example, here is the "desugared" version after the result builder transform has been applied to each of the closures:</p><pre><code><span class="keyword">let</span> output = <span class="call">html</span> {
+  <span class="keyword">let</span> a1 = <span class="call">body</span> {
+    <span class="keyword">let</span> b1 = <span class="call">div</span> {
+      <span class="keyword">let</span> c1_opt: (any <span class="type">HTMLElement</span>)?
+      <span class="keyword">if let</span> chapterTitle {
+        <span class="keyword">let</span> d1 = <span class="call">h1</span> { 
+          <span class="keyword">let</span> e1 = <span class="type">HTMLBuilder</span>.<span class="call">buildExpression</span>(chapterTitle)
+          <span class="keyword">return</span> <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(e1)
+        }
+        
+        c1 = <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(d1)
+      } <span class="keyword">else</span> {
+        c1 = <span class="keyword">nil</span>
+      }
+      <span class="keyword">let</span> c1 = <span class="type">HTMLBuilder</span>.<span class="call">buildOptional</span>(c1_opt)
+      
+      <span class="keyword">let</span> c2 = <span class="call">para</span> { 
+        <span class="keyword">let</span> f1 = <span class="type">HTMLBuilder</span>.<span class="call">buildExpression</span>(<span class="string">"Call me Ishmael. Some years ago..."</span>)
+        <span class="keyword">return</span> <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(f1)
+      }
+      
+      <span class="keyword">let</span> c3 = <span class="call">para</span> { 
+        <span class="keyword">let</span> g1 = <span class="type">HTMLBuilder</span>.<span class="call">buildExpression</span>(<span class="string">"There is now your insular city..."</span>)
+        <span class="keyword">return</span> <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(g1)
+      }
+      
+      <span class="keyword">return</span> <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(c1, c2, c3)
+    }
+    <span class="keyword">return</span> <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(b1)
+  }
+  <span class="keyword">return</span> <span class="type">HTMLBuilder</span>.<span class="call">buildBlock</span>(a1)
+}
+</code></pre><p>We are <em>almost</em> done, but we still don't know what the tag functions look like, or how it is that Swift decides to apply the result builder transform. Here is the <code>body</code> function:</p><pre><code><span class="keyword">func</span> body(<span class="keyword">@HTMLBuilder</span> body: () -&gt; any <span class="type">HTMLElement</span>) -&gt; <span class="type">HTMLTag</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"body"</span>, requiresNewline: <span class="keyword">true</span>, body: body)
+}
+</code></pre><p>The <code>body</code> function takes a closure that has <code>@HTMLBuilder</code> attribute on it, meaning that the <code>HTMLBuilder</code> transform will be applied to a closure passed into <code>body</code>. Once <code>HTMLBuilder</code> has been applied, that closure will return <code>any HTMLElement</code>, and we wrap that resulting value in the <code>HTMLTag</code> structure. We're done! The other HTML elements look basically the same:</p><pre><code><span class="keyword">func</span> h1(<span class="keyword">@HTMLBuilder</span> body: () -&gt; any <span class="type">HTMLElement</span>) -&gt; <span class="type">HTMLTag</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"h1"</span>, requiresNewline: <span class="keyword">false</span>, body: body)
+}
 
-  <span class="type">The</span> inner `for` loop executes, collecting new `any <span class="type">HTMLElement</span>` values <span class="keyword">for</span> each iteration. <span class="type">Then</span>, the resulting array <span class="keyword">is</span> passed to `<span class="type">HTMLBuilder</span>.<span class="property">buildArray</span>`. <span class="type">That</span> result becomes part of the `buildBlock` for the enclosing `for` loop's body, and each of those values gets collected into an array <span class="keyword">for</span> the outermost call to `<span class="type">HTMLBuilder</span>.<span class="property">buildArray</span>`. <span class="type">Like</span> with the previous operations, `buildArray` is optional: <span class="keyword">if</span> not provided, the result builder cannot be applied to a closure containing `for` loops.
+<span class="keyword">func</span> div(<span class="keyword">@HTMLBuilder</span> body: () -&gt; any <span class="type">HTMLElement</span>) -&gt; <span class="type">HTMLTag</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"div"</span>, requiresNewline: <span class="keyword">true</span>, body: body)
+}
 
-<span class="type">Going</span> back to our original example, here <span class="keyword">is</span> the <span class="string">"desugared"</span> version after the result builder transform has been applied to each of the closures:
+<span class="keyword">func</span> para(<span class="keyword">@HTMLBuilder</span> body: () -&gt; any <span class="type">HTMLElement</span>) -&gt; <span class="type">HTMLTag</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"para"</span>, requiresNewline: <span class="keyword">false</span>, body: body)
+}
+</code></pre><p>Only on the top-level <code>html</code> function do we do anything different, because here we render the produced <code>HTMLTag</code> to a string directly:</p><pre><code><span class="keyword">func</span> html(<span class="keyword">@HTMLBuilder</span> body: () -&gt; any <span class="type">HTMLElement</span>) -&gt; <span class="type">String</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"html"</span>, requiresNewline: <span class="keyword">true</span>, body: body).<span class="call">renderHTML</span>(indentation: <span class="number">0</span>)
+}
+</code></pre><h3>Strong typing for result builders</h3><p>If you read my <a href="../swift-for-cxx-practitioners-type-erasure/">earlier post on type erasure</a>, you might be a little bit worried about the number of <code>any HTMLElement</code> instances running around: it's all very dynamic, but does it have to be?</p><p>Short answer: <strong>no</strong>.</p><p>Long answer: the result builder transform is designed such that it's possible to retain the types of all of the elements, and even some of the control structures, within the type system. If you're thinking "expression templates", you're right! We're going to systematically remove the <code>any</code> types from our example above to produce a result builder that maintains the structure of the document in the static type system. Let's do this!</p><p>Let's start out easy: the <code>HTMLTag</code> type currently stores an <code>any HTMLElement</code>, but we can lift that into a generic parameter without changing much code at all:</p><pre><code><span class="keyword">struct</span> HTMLTag&lt;Element: <span class="type">HTMLElement</span>&gt;: <span class="type">HTMLElement</span> {
+  <span class="keyword">let</span> name: <span class="type">String</span>
+  <span class="keyword">let</span> requiresNewline: <span class="type">Bool</span>
+  <span class="keyword">let</span> element: <span class="type">Element</span>
 
-</code></pre><p>swift let output = html { let a1 = body { let b1 = div { let c1<em>opt: (any HTMLElement)? if let chapterTitle { let d1 = h1 { let e1 = HTMLBuilder.buildExpression(chapterTitle) return HTMLBuilder.buildBlock(e1) }<br> c1 = HTMLBuilder.buildBlock(d1) } else { c1 = nil } let c1 = HTMLBuilder.buildOptional(c1</em>opt)<br> let c2 = para { let f1 = HTMLBuilder.buildExpression("Call me Ishmael. Some years ago...") return HTMLBuilder.buildBlock(f1) }<br> let c3 = para { let g1 = HTMLBuilder.buildExpression("There is now your insular city...") return HTMLBuilder.buildBlock(g1) }<br> return HTMLBuilder.buildBlock(c1, c2, c3) } return HTMLBuilder.buildBlock(b1) } return HTMLBuilder.buildBlock(a1) }</p><pre><code>
-
-<span class="type">We</span> are *almost* done, but we still don't know what the tag functions look like, or how it <span class="keyword">is</span> that <span class="type">Swift</span> decides to apply the result builder transform. <span class="type">Here</span> <span class="keyword">is</span> the `body` function:
-
-</code></pre><p>swift func body(@HTMLBuilder body: () -&gt; any HTMLElement) -&gt; HTMLTag { HTMLTag(name: "body", requiresNewline: true, body: body) }</p><pre><code>
-
-<span class="type">The</span> `body` function takes a closure that has `<span class="keyword">@HTMLBuilder</span>` attribute on it, meaning that the `<span class="type">HTMLBuilder</span>` transform will be applied to a closure passed into `body`. <span class="type">Once</span> `<span class="type">HTMLBuilder</span>` has been applied, that closure will <span class="keyword">return</span> `any <span class="type">HTMLElement</span>`, and we wrap that resulting value <span class="keyword">in</span> the `<span class="type">HTMLTag</span>` structure. <span class="type">We</span>'re done! <span class="type">The</span> other <span class="type">HTML</span> elements look basically the same:
-
-</code></pre><p>swift func h1(@HTMLBuilder body: () -&gt; any HTMLElement) -&gt; HTMLTag { HTMLTag(name: "h1", requiresNewline: false, body: body) }</p><p>func div(@HTMLBuilder body: () -&gt; any HTMLElement) -&gt; HTMLTag { HTMLTag(name: "div", requiresNewline: true, body: body) }</p><p>func para(@HTMLBuilder body: () -&gt; any HTMLElement) -&gt; HTMLTag { HTMLTag(name: "para", requiresNewline: false, body: body) }</p><pre><code>
-
-<span class="type">Only</span> on the top-level `html` function <span class="keyword">do</span> we <span class="keyword">do</span> anything different, because here we render the produced `<span class="type">HTMLTag</span>` to a string directly:
-
-</code></pre><p>swift func html(@HTMLBuilder body: () -&gt; any HTMLElement) -&gt; String { HTMLTag(name: "html", requiresNewline: true, body: body).renderHTML(indentation: 0) }</p><pre><code>
-
-### <span class="type">Strong</span> typing <span class="keyword">for</span> result builders
-
-<span class="type">If</span> you read my [earlier post on type erasure](../swift-<span class="keyword">for</span>-cxx-practitioners-type-erasure/), you might be a little bit worried about the number of `any <span class="type">HTMLElement</span>` instances running around: it's all very <span class="keyword">dynamic</span>, but does it have to be?
-
-<span class="type">Short</span> answer: **no**.
-
-<span class="type">Long</span> answer: the result builder transform <span class="keyword">is</span> designed such that it's possible to retain the types of all of the elements, and even <span class="keyword">some</span> of the control structures, within the type system. <span class="type">If</span> you're thinking <span class="string">"expression templates"</span>, you're right! <span class="type">We</span>'re going to systematically remove the `any` types from our example above to produce a result builder that maintains the structure of the document <span class="keyword">in</span> the <span class="keyword">static</span> type system. <span class="type">Let</span>'s <span class="keyword">do</span> this!
-
-<span class="type">Let</span>'s start out easy: the `<span class="type">HTMLTag</span>` type currently stores an `any <span class="type">HTMLElement</span>`, but we can lift that into a generic parameter without changing much code at all:
-
-</code></pre><p>swift struct HTMLTag<Element: HTMLElement>: HTMLElement {
-  let name: String
-  let requiresNewline: Bool
-  let element: Element
-
-  init(
-    name: String,
-    requiresNewline: Bool,
-    @HTMLBuilder body: () -> Element
+  <span class="keyword">init</span>(
+    name: <span class="type">String</span>,
+    requiresNewline: <span class="type">Bool</span>,
+    <span class="keyword">@HTMLBuilder</span> body: () -&gt; <span class="type">Element</span>
   ) {
-    self.name = name
-    self.requiresNewline = requiresNewline
-    self.element = body()
+    <span class="keyword">self</span>.<span class="property">name</span> = name
+    <span class="keyword">self</span>.<span class="property">requiresNewline</span> = requiresNewline
+    <span class="keyword">self</span>.<span class="property">element</span> = <span class="call">body</span>()
   }
 
-  // .. renderHTML(indentation:) stays the same
+  <span class="comment">// .. renderHTML(indentation:) stays the same</span>
 }
-```
-
-Now that `HTMLTag` is generic, we can make those top-level functions like `body` and `div` generic. For example, `body` could look like this:
-
-```swift
-func body<Element: HTMLElement>(@HTMLBuilder body: () -> Element) -> HTMLTag<Element> {
-  HTMLTag(name: "body", requiresNewline: true, body: body)
+</code></pre><p>Now that <code>HTMLTag</code> is generic, we can make those top-level functions like <code>body</code> and <code>div</code> generic. For example, <code>body</code> could look like this:</p><pre><code><span class="keyword">func</span> body&lt;Element: <span class="type">HTMLElement</span>&gt;(<span class="keyword">@HTMLBuilder</span> body: () -&gt; <span class="type">Element</span>) -&gt; <span class="type">HTMLTag</span>&lt;<span class="type">Element</span>&gt; {
+  <span class="type">HTMLTag</span>(name: <span class="string">"body"</span>, requiresNewline: <span class="keyword">true</span>, body: body)
 }
 
-```
-
-The real action is `HTMLBuilder`, where we have a lot of functions that return `any HTMLElement`. We'll take them one-by-one, starting with the easiest: `buildExpression` just returns what it got, so we can make it generic directly:
-
-```swift
-  static func buildExpression<Element: HTMLElement>(_ element: Element) -> Element {
+</code></pre><p>The real action is <code>HTMLBuilder</code>, where we have a lot of functions that return <code>any HTMLElement</code>. We'll take them one-by-one, starting with the easiest: <code>buildExpression</code> just returns what it got, so we can make it generic directly:</p><pre><code>   <span class="keyword">static func</span> buildExpression&lt;Element: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> element: <span class="type">Element</span>) -&gt; <span class="type">Element</span> {
     element
   }
-```
-
-Next, we'll tackle `buildOptional`, which is used for (e.g.) an `if` without an `else`. The type-erasing implementation from above turns an optional into an array of zero or one elements, which is *very* dynamic. We need something that takes an optional of some `HTMLElement` type, like this...
-
-```swift
-  static func buildOptional<Element: HTMLElement>(_ element: Element?) -> ??? {
+</code></pre><p>Next, we'll tackle <code>buildOptional</code>, which is used for (e.g.) an <code>if</code> without an <code>else</code>. The type-erasing implementation from above turns an optional into an array of zero or one elements, which is <em>very</em> dynamic. We need something that takes an optional of some <code>HTMLElement</code> type, like this...</p><pre><code>   <span class="keyword">static func</span> buildOptional&lt;Element: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> element: <span class="type">Element</span>?) -&gt; ??? {
     ???
   }
-```
-
-But how can we fill in the result type and body? We need an `HTMLElement` that is optional (0 or 1) value, so why not use... `Optional` itself?
-
-```swift
-extension Optional: HTMLElement where Wrapped: HTMLElement {
-  func renderHTML(indentation: Int) -> String {
-    self?.renderHTML(indentation: indentation) ?? ""
+</code></pre><p>But how can we fill in the result type and body? We need an <code>HTMLElement</code> that is optional (0 or 1) value, so why not use... <code>Optional</code> itself?</p><pre><code><span class="keyword">extension</span> <span class="type">Optional</span>: <span class="type">HTMLElement</span> <span class="keyword">where</span> <span class="type">Wrapped</span>: <span class="type">HTMLElement</span> {
+  <span class="keyword">func</span> renderHTML(indentation: <span class="type">Int</span>) -&gt; <span class="type">String</span> {
+    <span class="keyword">self</span>?.<span class="call">renderHTML</span>(indentation: indentation) ?? <span class="string">""</span>
   }
 }
-```
-
-Now, an optional of some `HTMLElement`-conforming type is itself an `HTMLElement`, so our `buildOptional` can just be the identity function:
-
- ```swift
-   static func buildOptional<Element: HTMLElement>(_ element: Element?) -> Element? {
+</code></pre><p>Now, an optional of some <code>HTMLElement</code>-conforming type is itself an <code>HTMLElement</code>, so our <code>buildOptional</code> can just be the identity function:</p><pre><code>    <span class="keyword">static func</span> buildOptional&lt;Element: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> element: <span class="type">Element</span>?) -&gt; <span class="type">Element</span>? {
      element
    }
- ```
-
-As mentioned above, `buildEither` handles `if..else` statements, but is interesting because it comes as a pair of functions `buildEither(first:)` and `buildEither(second:)` that are called for the "if" value and "else" values, respectively. To capture both sides of the branch, we'll need some type that can represent either of two options. Alas, Swift's standard library doesn't have one just, so we'll define one ourselves as a generic enum `Either`:
-
-```swift
-enum Either<First, Second> {
-  case first(First)
-  case second(Second)
+</code></pre><p>As mentioned above, <code>buildEither</code> handles <code>if..else</code> statements, but is interesting because it comes as a pair of functions <code>buildEither(first:)</code> and <code>buildEither(second:)</code> that are called for the "if" value and "else" values, respectively. To capture both sides of the branch, we'll need some type that can represent either of two options. Alas, Swift's standard library doesn't have one just, so we'll define one ourselves as a generic enum <code>Either</code>:</p><pre><code><span class="keyword">enum</span> Either&lt;First, Second&gt; {
+  <span class="keyword">case</span> first(<span class="type">First</span>)
+  <span class="keyword">case</span> second(<span class="type">Second</span>)
 }
-```
-
-and make it an `HTMLElement` when both sides are `HTMLElement`s:
-
-```swift
-extension Either: HTMLElement where First: HTMLElement, Second: HTMLElement {
-  func renderHTML(indentation: Int) -> String {
-    switch self {
-    case .first(let element):
-      element.renderHTML(indentation: indentation)
-    case .second(let element):
-      element.renderHTML(indentation: indentation)
+</code></pre><p>and make it an <code>HTMLElement</code> when both sides are <code>HTMLElement</code>s:</p><pre><code><span class="keyword">extension</span> <span class="type">Either</span>: <span class="type">HTMLElement</span> <span class="keyword">where</span> <span class="type">First</span>: <span class="type">HTMLElement</span>, <span class="type">Second</span>: <span class="type">HTMLElement</span> {
+  <span class="keyword">func</span> renderHTML(indentation: <span class="type">Int</span>) -&gt; <span class="type">String</span> {
+    <span class="keyword">switch self</span> {
+    <span class="keyword">case</span> .<span class="dotAccess">first</span>(<span class="keyword">let</span> element):
+      element.<span class="call">renderHTML</span>(indentation: indentation)
+    <span class="keyword">case</span> .<span class="dotAccess">second</span>(<span class="keyword">let</span> element):
+      element.<span class="call">renderHTML</span>(indentation: indentation)
     }
   }  
 }
-```
-
-With this, we can define the pair of `buildEither` overloads to return `Either`, like this:
-
-```swift
-  static func buildEither<First: HTMLElement, Second: HTMLElement>(first element: First) -> Either<First, Second> {
-    .first(element)
+</code></pre><p>With this, we can define the pair of <code>buildEither</code> overloads to return <code>Either</code>, like this:</p><pre><code>   <span class="keyword">static func</span> buildEither&lt;First: <span class="type">HTMLElement</span>, Second: <span class="type">HTMLElement</span>&gt;(first element: <span class="type">First</span>) -&gt; <span class="type">Either</span>&lt;<span class="type">First</span>, <span class="type">Second</span>&gt; {
+    .<span class="call">first</span>(element)
   }
 
-  static func buildEither<First: HTMLElement, Second: HTMLElement>(second element: Second) -> Either<First, Second> {
-    .second(element)
+  <span class="keyword">static func</span> buildEither&lt;First: <span class="type">HTMLElement</span>, Second: <span class="type">HTMLElement</span>&gt;(second element: <span class="type">Second</span>) -&gt; <span class="type">Either</span>&lt;<span class="type">First</span>, <span class="type">Second</span>&gt; {
+    .<span class="call">second</span>(element)
   }
-```
-
-Look at those functions individually, and they are kind of weird: both have `First` and `Second` types, yet only one of those types is mentioned as a type of a parameter. However, taken as a pair of calls, we can form a meaningful type. Imagine the following expression:
-
-```swift
-condition ? buildEither(first: x) : buildEither(second: y)
-```
-
-That whole expression needs to have a single type, and a value of that type can be formed by either the `buildEither(first: x)` call or the `buildEither(second: x)` call. Therefore, the branch that calls `buildEither(first:)` will determine the `First` type from `x` (let's call it `X`) and the branch that calls `buildEither(second:)` will determine the `Second` type from `y` (let's call it `Y`), resulting in a result type `Either<X, Y>`. 
-
-On to `buildArray`, which currently takes an array of `any HTMLElement`, but that won't do: we want to have a concrete element type for the array. Fortunately, we can lift this to take an array of some `HTMLElement`-conforming type, making it the identity function just like `buildOptional`:
-
-```swift
-  static func buildArray<Element: HTMLElement>(_ components: [Element]) -> [Element] {
+</code></pre><p>Look at those functions individually, and they are kind of weird: both have <code>First</code> and <code>Second</code> types, yet only one of those types is mentioned as a type of a parameter. However, taken as a pair of calls, we can form a meaningful type. Imagine the following expression:</p><pre><code>condition ? <span class="call">buildEither</span>(first: x) : <span class="call">buildEither</span>(second: y)
+</code></pre><p>That whole expression needs to have a single type, and a value of that type can be formed by either the <code>buildEither(first: x)</code> call or the <code>buildEither(second: x)</code> call. Therefore, the branch that calls <code>buildEither(first:)</code> will determine the <code>First</code> type from <code>x</code> (let's call it <code>X</code>) and the branch that calls <code>buildEither(second:)</code> will determine the <code>Second</code> type from <code>y</code> (let's call it <code>Y</code>), resulting in a result type <code>Either&lt;X, Y&gt;</code>.</p><p>On to <code>buildArray</code>, which currently takes an array of <code>any HTMLElement</code>, but that won't do: we want to have a concrete element type for the array. Fortunately, we can lift this to take an array of some <code>HTMLElement</code>-conforming type, making it the identity function just like <code>buildOptional</code>:</p><pre><code>   <span class="keyword">static func</span> buildArray&lt;Element: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> components: [<span class="type">Element</span>]) -&gt; [<span class="type">Element</span>] {
     components
   }
 
-```
-
-We do have to generalize the conformance of `Array` to `HTMLElement` by making it work for any `HTMLElement`-conforming `Element` type, like this:
-
-```swift
-extension Array: HTMLElement where Element: HTMLElement {
-  func renderHTML(indentation: Int) -> String {
-    // same as above
+</code></pre><p>We do have to generalize the conformance of <code>Array</code> to <code>HTMLElement</code> by making it work for any <code>HTMLElement</code>-conforming <code>Element</code> type, like this:</p><pre><code><span class="keyword">extension</span> <span class="type">Array</span>: <span class="type">HTMLElement</span> <span class="keyword">where</span> <span class="type">Element</span>: <span class="type">HTMLElement</span> {
+  <span class="keyword">func</span> renderHTML(indentation: <span class="type">Int</span>) -&gt; <span class="type">String</span> {
+    <span class="comment">// same as above</span>
   }
 }
-```
-
-Only one function remains, `buildBlock`, but this one is tricky.  Right now, it accepts any number of `any HTMLElement` arguments, which it treats as an array. Unlike with the `buildArray` function, each of the arguments can have a completely different type because it comes from a different statement in the transformed closure. In the post on [generics](../swift-for-cxx-practitioners-generics), I talked about parameter packs, which are a good match for this function:
-
-```swift
-static func buildBlock<each Element: HTMLElement>(_ element: repeat each Element) -> ??? {
+</code></pre><p>Only one function remains, <code>buildBlock</code>, but this one is tricky. Right now, it accepts any number of <code>any HTMLElement</code> arguments, which it treats as an array. Unlike with the <code>buildArray</code> function, each of the arguments can have a completely different type because it comes from a different statement in the transformed closure. In the post on <a href="../swift-for-cxx-practitioners-generics">generics</a>, I talked about parameter packs, which are a good match for this function:</p><pre><code><span class="keyword">static func</span> buildBlock&lt;each <span class="type">Element</span>: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> element: <span class="keyword">repeat</span> each <span class="type">Element</span>) -&gt; ??? {
     ???
  }
-```
+</code></pre><p>Now, <code>buildBlock</code> can accept any number of arguments, of different types, so long as every type conforms to <code>HTMLElement</code>. How do we turn that into a single instance that conforms to <code>HTMLElement</code>? Here's the best I came up with:</p><pre><code><span class="keyword">struct</span> ElementSequence&lt;each <span class="type">Element</span>: <span class="type">HTMLElement</span>&gt;: <span class="type">HTMLElement</span> {
+  <span class="keyword">var</span> renderer: (<span class="type">Int</span>) -&gt; <span class="type">String</span>
 
-Now, `buildBlock` can accept any number of arguments, of different types, so long as every type conforms to `HTMLElement`. How do we turn that into a single instance that conforms to `HTMLElement`? Here's the best I came up with:
+  <span class="keyword">init</span>(<span class="keyword">_</span> element: <span class="keyword">repeat</span> each <span class="type">Element</span>) {
+    <span class="keyword">switch</span> <span class="type">Self</span>.<span class="property">elementCount</span> {
+    <span class="keyword">case</span> <span class="number">0</span>:
+      renderer = { <span class="keyword">_ in</span> <span class="string">""</span> }
 
-```swift
-struct ElementSequence<each Element: HTMLElement>: HTMLElement {
-  var renderer: (Int) -> String
-
-  init(_ element: repeat each Element) {
-    switch Self.elementCount {
-    case 0:
-      renderer = { _ in "" }
-
-    case 1:
-      renderer = { indentation in
-        for element in repeat each element {
-          return element.renderHTML(indentation: indentation)
+    <span class="keyword">case</span> <span class="number">1</span>:
+      renderer = { indentation <span class="keyword">in
+        for</span> element <span class="keyword">in repeat</span> each element {
+          <span class="keyword">return</span> element.<span class="call">renderHTML</span>(indentation: indentation)
         }
-        fatalError("must have returned from the loop")
+        <span class="call">fatalError</span>(<span class="string">"must have returned from the loop"</span>)
       }
  
-    default:
-      renderer = { indentation in
-        var finalString = ""
-        let indentString = "\n" + String(repeating: " ", count: indentation)
-        for element in repeat each element {
+    <span class="keyword">default</span>:
+      renderer = { indentation <span class="keyword">in
+        var</span> finalString = <span class="string">""</span>
+        <span class="keyword">let</span> indentString = <span class="string">"\n"</span> + <span class="type">String</span>(repeating: <span class="string">" "</span>, count: indentation)
+        <span class="keyword">for</span> element <span class="keyword">in repeat</span> each element {
           finalString += indentString
-          finalString += element.renderHTML(indentation: indentation + 1)
+          finalString += element.<span class="call">renderHTML</span>(indentation: indentation + <span class="number">1</span>)
         }
-        return finalString
+        <span class="keyword">return</span> finalString
       }
     }
   }
 
-  func renderHTML(indentation: Int) -> String {
-    renderer(indentation)
+  <span class="keyword">func</span> renderHTML(indentation: <span class="type">Int</span>) -&gt; <span class="type">String</span> {
+    <span class="call">renderer</span>(indentation)
   }
 
-  private static var elementCount: Int {
-    var count = 0
-    for _ in repeat (each Element).self {
-      count += 1
+  <span class="keyword">private static var</span> elementCount: <span class="type">Int</span> {
+    <span class="keyword">var</span> count = <span class="number">0</span>
+    <span class="keyword">for _ in repeat</span> (each <span class="type">Element</span>).<span class="keyword">self</span> {
+      count += <span class="number">1</span>
     }
-    return count
+    <span class="keyword">return</span> count
   }
 }
-```
-
-Here, the `ElementSequence`  struct takes any number of type arguments. There's a helper property `elementCount` that walks through all of the element types to count how many there are, so we can use it in the switch. The interesting bit is in the initializer: it takes all of the actual elements, but rather than store them directly, it stores a function that handles the rendering. The `default` case is the one that does most of the work: it iterates over each of the elements, rendering them into the resulting string in the same way that we did for arrays. The 0 and 1 cases are there to match what we did for arrays earlier, but are otherwise uninteresting. 
-
-The solution above works, and gives us our implementation of `buildBlock`:
-
-```swift
-  static func buildBlock<each Element: HTMLElement>(_ element: repeat each Element) -> ElementSequence<repeat each Element> {
-    ElementSequence(repeat each element)
+</code></pre><p>Here, the <code>ElementSequence</code> struct takes any number of type arguments. There's a helper property <code>elementCount</code> that walks through all of the element types to count how many there are, so we can use it in the switch. The interesting bit is in the initializer: it takes all of the actual elements, but rather than store them directly, it stores a function that handles the rendering. The <code>default</code> case is the one that does most of the work: it iterates over each of the elements, rendering them into the resulting string in the same way that we did for arrays. The 0 and 1 cases are there to match what we did for arrays earlier, but are otherwise uninteresting.</p><p>The solution above works, and gives us our implementation of <code>buildBlock</code>:</p><pre><code>   <span class="keyword">static func</span> buildBlock&lt;each <span class="type">Element</span>: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> element: <span class="keyword">repeat</span> each <span class="type">Element</span>) -&gt; <span class="type">ElementSequence</span>&lt;<span class="keyword">repeat</span> each <span class="type">Element</span>&gt; {
+    <span class="type">ElementSequence</span>(repeat each element)
   }
-```
-
-I suspect there's a better implementation of `ElementSequence`. If you find one, please tell me! For now, let's step back to what we've done here: we've eliminated every use of `any` types, so we have complete static type information. We can see this if we intentionally trigger a compile-time error that will print the type, e.g.,:
-
-```swift
-let _: Int = body {
-    if let chapterTitle {
-      h1 {
+</code></pre><p>I suspect there's a better implementation of <code>ElementSequence</code>. If you find one, please tell me! For now, let's step back to what we've done here: we've eliminated every use of <code>any</code> types, so we have complete static type information. We can see this if we intentionally trigger a compile-time error that will print the type, e.g.,:</p><pre><code><span class="keyword">let _</span>: <span class="type">Int</span> = <span class="call">body</span> {
+    <span class="keyword">if let</span> chapterTitle {
+      <span class="call">h1</span> {
         chapterTitle
       }
     }
 
-    para {
-      "Call me Ishmael. Some years ago..."
+    <span class="call">para</span> {
+      <span class="string">"Call me Ishmael. Some years ago..."</span>
     }
 
-    para {
-      "There is now your insular city"
+    <span class="call">para</span> {
+      <span class="string">"There is now your insular city"</span>
     }
   }
-```
-
-The resulting error message contains the full type in all of its static, expression-template-y glory:
-
-```swift
-HTMLTag<
-  ElementSequence<
-    ElementSequence<
-      HTMLTag<ElementSequence<String>>
-    >?, 
-    HTMLTag<ElementSequence<String>>, 
-    HTMLTag<ElementSequence<String>>
-  >
->
-```
-
-## Hiding the types
-
-Now that we've proven to ourselves that we can maintain complete static type information throughout the entirety of the result-builder transform, we can have to ask ourselves: is it everything we ever wanted? On the one hand, this approach is a whole lot more optimizable than the one using `any` types, because enough generic specialization and inlining can completely eliminate all of the abstractions here. On the other hand, that is quite the monster of a type for such a simple example DSL: is it worth inflicing such types on the users of our DSL and leaking them out of the implementation?
-
-This is where `some` types come in: technically called opaque types, and covered in the earlier post on [type erasure](../swift-for-cxx-practitioners-type-erasure), opaque types let you hide the actual types you are returning from a generic function without losing identity. The idea is that the types still exist, but they aren't exposed directly to the user. We can replace the result types of some of our functions with `some HTMLElement`, meaning "some specific type that conforms to `HTMLElement`", without changing much other code. For example, `buildBlock` can be written as follows:
-
-```swift
-  static func buildBlock<each Element: HTMLElement>(_ element: repeat each Element) -> some HTMLElement {
-    return ElementSequence(repeat each element)
+</code></pre><p>The resulting error message contains the full type in all of its static, expression-template-y glory:</p><pre><code><span class="type">HTMLTag</span>&lt;
+  <span class="type">ElementSequence</span>&lt;
+    <span class="type">ElementSequence</span>&lt;
+      <span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">String</span>&gt;&gt;
+    &gt;?, 
+    <span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">String</span>&gt;&gt;, 
+    <span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">String</span>&gt;&gt;
+  &gt;
+&gt;
+</code></pre><h2>Hiding the types</h2><p>Now that we've proven to ourselves that we can maintain complete static type information throughout the entirety of the result-builder transform, we can have to ask ourselves: is it everything we ever wanted? On the one hand, this approach is a whole lot more optimizable than the one using <code>any</code> types, because enough generic specialization and inlining can completely eliminate all of the abstractions here. On the other hand, that is quite the monster of a type for such a simple example DSL: is it worth inflicing such types on the users of our DSL and leaking them out of the implementation?</p><p>This is where <code>some</code> types come in: technically called opaque types, and covered in the earlier post on <a href="../swift-for-cxx-practitioners-type-erasure">type erasure</a>, opaque types let you hide the actual types you are returning from a generic function without losing identity. The idea is that the types still exist, but they aren't exposed directly to the user. We can replace the result types of some of our functions with <code>some HTMLElement</code>, meaning "some specific type that conforms to <code>HTMLElement</code>", without changing much other code. For example, <code>buildBlock</code> can be written as follows:</p><pre><code>   <span class="keyword">static func</span> buildBlock&lt;each <span class="type">Element</span>: <span class="type">HTMLElement</span>&gt;(<span class="keyword">_</span> element: <span class="keyword">repeat</span> each <span class="type">Element</span>) -&gt; <span class="keyword">some</span> <span class="type">HTMLElement</span> {
+    <span class="keyword">return</span> <span class="type">ElementSequence</span>(repeat each element)
   }
-```
-
-This lets us hide the `ElementSequence` type entirely: it could be `private` to this file, and therefore not visible to clients. The same could be done for all of the top-level functions like `body` and `h1`, which can return `some HTMLElement` rather than exposing their full return type:
-
-```swift
-func body(@HTMLBuilder body: () -> some HTMLElement) -> some HTMLElement {
-  HTMLTag(name: "body", requiresNewline: true, body: body)
+</code></pre><p>This lets us hide the <code>ElementSequence</code> type entirely: it could be <code>private</code> to this file, and therefore not visible to clients. The same could be done for all of the top-level functions like <code>body</code> and <code>h1</code>, which can return <code>some HTMLElement</code> rather than exposing their full return type:</p><pre><code><span class="keyword">func</span> body(<span class="keyword">@HTMLBuilder</span> body: () -&gt; <span class="keyword">some</span> <span class="type">HTMLElement</span>) -&gt; <span class="keyword">some</span> <span class="type">HTMLElement</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"body"</span>, requiresNewline: <span class="keyword">true</span>, body: body)
 }
 
-func h1(@HTMLBuilder body: () -> some HTMLElement) -> some HTMLElement {
-  HTMLTag(name: "h1", requiresNewline: false, body: body)
+<span class="keyword">func</span> h1(<span class="keyword">@HTMLBuilder</span> body: () -&gt; <span class="keyword">some</span> <span class="type">HTMLElement</span>) -&gt; <span class="keyword">some</span> <span class="type">HTMLElement</span> {
+  <span class="type">HTMLTag</span>(name: <span class="string">"h1"</span>, requiresNewline: <span class="keyword">false</span>, body: body)
 }
-```
-
-Now, the `HTMLTag` type has become an implementation detail, and need not be exposed to users. Later versions of the library could choose to express it in some different way without breaking clients, because clients just see `some HTMLElement` for the types of these calls.
-
-Note that the types still *exist*, and can be queried at runtime if they are needed. For example, we can capture the call to `body` in a variable and print its type with `type(of:)`, like this:
-
-```swift
-let b = body {
-    if let chapterTitle {
-      h1 {
+</code></pre><p>Now, the <code>HTMLTag</code> type has become an implementation detail, and need not be exposed to users. Later versions of the library could choose to express it in some different way without breaking clients, because clients just see <code>some HTMLElement</code> for the types of these calls.</p><p>Note that the types still <em>exist</em>, and can be queried at runtime if they are needed. For example, we can capture the call to <code>body</code> in a variable and print its type with <code>type(of:)</code>, like this:</p><pre><code><span class="keyword">let</span> b = <span class="call">body</span> {
+    <span class="keyword">if let</span> chapterTitle {
+      <span class="call">h1</span> {
         chapterTitle
       }
     }
 
-    para {
-      "Call me Ishmael. Some years ago..."
+    <span class="call">para</span> {
+      <span class="string">"Call me Ishmael. Some years ago..."</span>
     }
 
-    para {
-      "There is now your insular city"
+    <span class="call">para</span> {
+      <span class="string">"There is now your insular city"</span>
     }
   }
-print(type(of: b))
-```
-
-and we'll get a printed representation of the full structure of the type like this:
-
-```swift
-HTMLTag<ElementSequence<Pack{Optional<ElementSequence<Pack{HTMLTag<ElementSequence<Pack{String}>>}>>, HTMLTag<ElementSequence<Pack{String}>>, HTMLTag<ElementSequence<Pack{String}>>}>>
-```
-
-Opaque types provide a balance between the benefits of maintaining DSL structure in the type system (more type checking, better specialization) and putting structure behind an abstraction barrier (for conciseness and implementation-hiding).
-
-## Other uses of result builders
-
-We've gone really deep on rendering HTML, something that could perhaps be considered a trivial example. However, it turns out to be really nice in practice, as you can see from Paul Hudson's static site generator [Ignite](https://github.com/twostraws/Ignite). Result builders are also in use in a number of other DSLs. Here are some examples:
-
-* **Regular expressions**: Swift supports regular expressions with a syntax that uses surrounding slashes, e.g., `/[$£]\d+\.\d{2}/`. However, for more complicated regular expressions, there is also a `RegexBuilder` DSL that uses result builders. Here is the equivalent in that DSL:
-
-  ```swift
-  Regex {
-    One(CharacterClass.anyOf("$£"))
-    OneOrMore(.digit)
-    "."
-    Repeat(count: 2) {
-      One(.digit)
+<span class="call">print</span>(<span class="call">type</span>(of: b))
+</code></pre><p>and we'll get a printed representation of the full structure of the type like this:</p><pre><code><span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">Pack</span>{<span class="type">Optional</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">Pack</span>{<span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">Pack</span>{<span class="type">String</span>}&gt;&gt;}&gt;&gt;, <span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">Pack</span>{<span class="type">String</span>}&gt;&gt;, <span class="type">HTMLTag</span>&lt;<span class="type">ElementSequence</span>&lt;<span class="type">Pack</span>{<span class="type">String</span>}&gt;&gt;}&gt;&gt;
+</code></pre><p>Opaque types provide a balance between the benefits of maintaining DSL structure in the type system (more type checking, better specialization) and putting structure behind an abstraction barrier (for conciseness and implementation-hiding).</p><h2>Other uses of result builders</h2><p>We've gone really deep on rendering HTML, something that could perhaps be considered a trivial example. However, it turns out to be really nice in practice, as you can see from Paul Hudson's static site generator <a href="https://github.com/twostraws/Ignite">Ignite</a>. Result builders are also in use in a number of other DSLs. Here are some examples:</p><ul><li><strong>Regular expressions</strong>: Swift supports regular expressions with a syntax that uses surrounding slashes, e.g., <code>/[$£]\d+\.\d{2}/</code>. However, for more complicated regular expressions, there is also a <code>RegexBuilder</code> DSL that uses result builders. Here is the equivalent in that DSL:</li></ul><pre><code>   <span class="type">Regex</span> {
+    <span class="type">One</span>(<span class="type">CharacterClass</span>.<span class="call">anyOf</span>(<span class="string">"$£"</span>))
+    <span class="type">OneOrMore</span>(.<span class="dotAccess">digit</span>)
+    <span class="string">"."</span>
+    <span class="type">Repeat</span>(count: <span class="number">2</span>) {
+      <span class="type">One</span>(.<span class="dotAccess">digit</span>)
     }
   }
-  ```
-
-* **Declarative UI**: Perhaps the most well-known use of result builders is the SwiftUI library for declarative UI, which uses result builders. For example:
-
-  ```swift
-  		List(album.songs) { song in 
-  			HStack {
-  				Image(album.cover)
-  				VStack(alignment: .leading) {
-  					Text(song.title)
-  					Text(song.artist.name)
-  						.foregroundStyle(.secondary)
-  				}
-  			}
-  		}
-  ```
-
-* **Routing**: the [Hummingbird](https://swiftpackageindex.com/hummingbird-project/hummingbird) package uses result builders to express routing for services:
-
-  ```swift
-  let router = RouterBuilder(context: BasicRouterRequestContext.self) {
-      TracingMiddleware()
-      Get("test") { _, context in
-          return context.endpointPath
+</code></pre><ul><li><strong>Declarative UI</strong>: Perhaps the most well-known use of result builders is the SwiftUI library for declarative UI, which uses result builders. For example:</li></ul><pre><code>   <span class="type">List</span>(album.<span class="property">songs</span>) { song <span class="keyword">in</span> 
+    <span class="type">HStack</span> {
+      <span class="type">Image</span>(album.<span class="property">cover</span>)
+      <span class="type">VStack</span>(alignment: .<span class="dotAccess">leading</span>) {
+        <span class="type">Text</span>(song.<span class="property">title</span>)
+        <span class="type">Text</span>(song.<span class="property">artist</span>.<span class="property">name</span>)
+          .<span class="call">foregroundStyle</span>(.<span class="dotAccess">secondary</span>)
       }
-      Get { _, context in
-          return context.endpointPath
+    }
+  }
+  
+</code></pre><ul><li><strong>Routing</strong>: the <a href="https://swiftpackageindex.com/hummingbird-project/hummingbird">Hummingbird</a> package uses result builders to express routing for services:</li></ul><pre><code>   <span class="keyword">let</span> router = <span class="type">RouterBuilder</span>(context: <span class="type">BasicRouterRequestContext</span>.<span class="keyword">self</span>) {
+      <span class="type">TracingMiddleware</span>()
+      <span class="type">Get</span>(<span class="string">"test"</span>) { <span class="keyword">_</span>, context <span class="keyword">in
+          return</span> context.<span class="property">endpointPath</span>
       }
-      Post("/test2") { _, context in
-          return context.endpointPath
+      <span class="type">Get</span> { <span class="keyword">_</span>, context <span class="keyword">in
+          return</span> context.<span class="property">endpointPath</span>
+      }
+      <span class="type">Post</span>(<span class="string">"/test2"</span>) { <span class="keyword">_</span>, context <span class="keyword">in
+          return</span> context.<span class="property">endpointPath</span>
       }
   }
-  ```
-
-
-## Wrap-up and what's next?
-
-Result builders are a big heap of syntactic sugar designed specifically to make it possible to build elegant, type-safe Domain Specific Languages embedded in Swift. They provide a declarative syntax that can be transformed in a manner that can describe the structure of the input in the type system, or collapse it down when that's not necessary, giving expressive power to the author of the result builder.
-
-This post has drifted somewhat from the focus on teaching Swift to C++ programmers, so next I'll bring it back and we'll talk about C++ move semantics and the Swift analogue: noncopyable types.
-
-</p></div><span>Tagged with: </span><ul class="tag-list"><li><a href="/tags/swift">Swift</a></li><li><a href="/tags/c">C++</a></li></ul></article></div><footer><p>Generated using <a href="https://github.com/johnsundell/publish">Publish</a></p><p><a href="/feed.rss">RSS feed</a></p></footer></body></html>
+</code></pre><h2>Wrap-up and what's next?</h2><p>Result builders are a big heap of syntactic sugar designed specifically to make it possible to build elegant, type-safe Domain Specific Languages embedded in Swift. They provide a declarative syntax that can be transformed in a manner that can describe the structure of the input in the type system, or collapse it down when that's not necessary, giving expressive power to the author of the result builder.</p><p>This post has drifted somewhat from the focus on teaching Swift to C++ programmers, so next I'll bring it back and we'll talk about C++ move semantics and the Swift analogue: noncopyable types.</p></div><span>Tagged with: </span><ul class="tag-list"><li><a href="/tags/swift">Swift</a></li><li><a href="/tags/c">C++</a></li></ul></article></div><footer><p>Generated using <a href="https://github.com/johnsundell/publish">Publish</a></p><p><a href="/feed.rss">RSS feed</a></p></footer></body></html>
