@@ -71,7 +71,7 @@ SELECT * FROM</span> \(tableName)
     <span class="string">print(</span>\(varName) <span class="string">+ 42)
     """</span>
 </code></pre><h3>The <code>ExpressibleByStringInterpolation</code> protocol</h3><p>To create your own strongly-typed templating solution with string interpolation, you'll need to create a type that conforms to the <code>ExpressibleByStringInterpolation</code> protocol:</p><pre><code><span class="keyword">public protocol</span> ExpressibleByStringInterpolation: <span class="type">ExpressibleByStringLiteral</span> {
-    <span class="keyword">associatedtype</span> StringInterpolation: <span class="type">StringInterpolationProtocol</span> = <span class="keyword">where</span> <span class="type">StringLiteralType</span> == <span class="type">StringInterpolation</span>.<span class="type">StringLiteralType</span>
+    <span class="keyword">associatedtype</span> StringInterpolation: <span class="type">StringInterpolationProtocol</span> <span class="keyword">where</span> <span class="type">StringLiteralType</span> == <span class="type">StringInterpolation</span>.<span class="type">StringLiteralType</span>
 
     <span class="keyword">init</span>(stringInterpolation: <span class="type">StringInterpolation</span>)
 }
