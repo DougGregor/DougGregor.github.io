@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Doug's Compiler Corner</title><description>Musings on programming languages and compilers.</description><link>https://www.douggregor.net</link><language>en</language><lastBuildDate>Mon, 22 Sep 2025 20:20:31 -0700</lastBuildDate><pubDate>Mon, 22 Sep 2025 20:20:31 -0700</pubDate><ttl>250</ttl><atom:link href="https://www.douggregor.net/feed.rss" rel="self" type="application/rss+xml"/><item><guid isPermaLink="true">https://www.douggregor.net/posts/swift-for-cxx-practitioners-flexible-array-members</guid><title>Swift for C++ Practitioners, Part 13: Flexible Array Members</title><description>Swift for C++ Practitioners, Part 13: Flexible Array Members</description><link>https://www.douggregor.net/posts/swift-for-cxx-practitioners-flexible-array-members</link><pubDate>Mon, 22 Sep 2025 20:09:00 -0700</pubDate><content:encoded><![CDATA[<h1>Swift for C++ Practitioners, Part 13: Flexible Array Members</h1><p><a href="https://en.wikipedia.org/wiki/Flexible_array_member">Flexible array members</a> are an odd feature of C that is intended to capture the pattern of a variable-length structure consisting of a header followed by an array of some element type. It's a very specific pattern where the last element of a structure can be an array with no size information, like this:</p><pre><code><span class="keyword">struct</span> Path {
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Doug's Compiler Corner</title><description>Musings on programming languages and compilers.</description><link>https://www.douggregor.net</link><language>en</language><lastBuildDate>Sat, 6 Dec 2025 09:30:39 -0800</lastBuildDate><pubDate>Sat, 6 Dec 2025 09:30:39 -0800</pubDate><ttl>250</ttl><atom:link href="https://www.douggregor.net/feed.rss" rel="self" type="application/rss+xml"/><item><guid isPermaLink="true">https://www.douggregor.net/posts/swift-for-cxx-practitioners-flexible-array-members</guid><title>Swift for C++ Practitioners, Part 13: Flexible Array Members</title><description>Swift for C++ Practitioners, Part 13: Flexible Array Members</description><link>https://www.douggregor.net/posts/swift-for-cxx-practitioners-flexible-array-members</link><pubDate>Mon, 22 Sep 2025 20:09:00 -0700</pubDate><content:encoded><![CDATA[<h1>Swift for C++ Practitioners, Part 13: Flexible Array Members</h1><p><a href="https://en.wikipedia.org/wiki/Flexible_array_member">Flexible array members</a> are an odd feature of C that is intended to capture the pattern of a variable-length structure consisting of a header followed by an array of some element type. It's a very specific pattern where the last element of a structure can be an array with no size information, like this:</p><pre><code><span class="keyword">struct</span> Path {
   unsigned num_points;
   <span class="type">_Bool</span> isClosed;
   <span class="keyword">struct</span> Point points[];
@@ -41,7 +41,7 @@ myPath[<span class="number">0</span>] = <span class="type">Point</span>(x: <span
 // some buffer for alignment.</span>
 <span class="keyword">let</span> padding: <span class="type">Int</span>
 <span class="keyword">if</span> pointAlignment &gt; pathAlignment {
-  padding = elementAlignment - headerAlignment
+  padding = pointAlignment - pathAlignment
 } <span class="keyword">else</span> {
   padding = <span class="number">0</span>
 }
@@ -2243,7 +2243,7 @@ for</span> current <span class="keyword">in</span> describibles {
   <span class="keyword">var</span> radius: <span class="type">Double</span> {
     <span class="keyword">get</span> { magnitude }
     <span class="keyword">set</span> { 
-      <span class="keyword">self</span> = .<span class="keyword">init</span>(angle: angle, radius: newRadius)
+      <span class="keyword">self</span> = .<span class="keyword">init</span>(angle: angle, radius: newValue)
     }
   }
 
